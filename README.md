@@ -1,6 +1,6 @@
 # mm
 
-A full-featured command-line client for [Mattermost](https://mattermost.com), similar to [`gh`](https://github.com/cli/cli) for GitHub or [`glab`](https://gitlab.com/gitlab-org/cli) for GitLab.
+A full-featured command-line client for [Mattermost](https://mattermost.com).
 
 `mm` lets you interact with your Mattermost server entirely from the terminal: send messages, manage channels, stream real-time notifications, upload files, schedule posts, and much more.
 

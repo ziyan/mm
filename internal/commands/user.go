@@ -228,11 +228,13 @@ func userListRun(command *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("listing team members: %w", err)
 		}
-		for _, member := range members {
-			user, _, err := apiClient.GetUser(ctx, member.UserId, "")
-			if err == nil {
-				users = append(users, user)
-			}
+		userIds := make([]string, len(members))
+		for index, member := range members {
+			userIds[index] = member.UserId
+		}
+		users, _, err = apiClient.GetUsersByIds(ctx, userIds)
+		if err != nil {
+			return fmt.Errorf("fetching users: %w", err)
 		}
 	} else {
 		var err error

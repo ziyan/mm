@@ -299,10 +299,23 @@ func channelMembersRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
+	userIds := make([]string, len(members))
+	for index := range members {
+		userIds[index] = members[index].UserId
+	}
+	users, _, err := apiClient.GetUsersByIds(ctx, userIds)
+	if err != nil {
+		return fmt.Errorf("fetching users: %w", err)
+	}
+	userById := make(map[string]*model.User)
+	for _, user := range users {
+		userById[user.Id] = user
+	}
+
 	var rows [][]string
 	for _, member := range members {
-		user, _, err := apiClient.GetUser(ctx, member.UserId, "")
-		if err != nil {
+		user, ok := userById[member.UserId]
+		if !ok {
 			continue
 		}
 		rows = append(rows, []string{user.Username, user.GetFullName(), member.Roles})

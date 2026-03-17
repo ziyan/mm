@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/spf13/cobra"
 	"github.com/ziyan/mm/internal/client"
 	"github.com/ziyan/mm/internal/config"
@@ -178,10 +179,23 @@ func teamMembersRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
+	userIds := make([]string, len(members))
+	for index, member := range members {
+		userIds[index] = member.UserId
+	}
+	users, _, err := apiClient.GetUsersByIds(ctx, userIds)
+	if err != nil {
+		return fmt.Errorf("fetching users: %w", err)
+	}
+	userById := make(map[string]*model.User)
+	for _, user := range users {
+		userById[user.Id] = user
+	}
+
 	var rows [][]string
 	for _, member := range members {
-		user, _, err := apiClient.GetUser(ctx, member.UserId, "")
-		if err != nil {
+		user, ok := userById[member.UserId]
+		if !ok {
 			continue
 		}
 		roles := member.Roles

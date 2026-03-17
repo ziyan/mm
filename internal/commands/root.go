@@ -12,7 +12,7 @@ import (
 var rootCommand = &cobra.Command{
 	Use:     "mm",
 	Short:   "Mattermost CLI client",
-	Long:    "A command-line client for Mattermost, similar to gh for GitHub.",
+	Long:    "A full-featured command-line client for Mattermost.",
 	Version: version.Version(),
 	PersistentPreRun: func(command *cobra.Command, args []string) {
 		jsonFlag, _ := command.Flags().GetBool("json")
