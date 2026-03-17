@@ -6,11 +6,14 @@ GO := go
 GOFLAGS := -mod=vendor
 CGO_ENABLED := 0
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -s -w -X main.version=$(VERSION)
+VERSION ?= $(shell git describe --tags 2>/dev/null || echo 0.1.0)
+COMMIT ?= $(shell git describe --match=NeVeRmAtCh --always --abbrev=40 --dirty)
+LDFLAGS := -s -w \
+	-X github.com/ziyan/mm/internal/version.version=$(VERSION) \
+	-X github.com/ziyan/mm/internal/version.commit=$(COMMIT)
 
 build:
-	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./command/
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BUILD_DIR)/$(BINARY) ./command/
 
 clean:
 	rm -f $(BUILD_DIR)/$(BINARY)
