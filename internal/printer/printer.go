@@ -17,22 +17,22 @@ var (
 	Stderr     io.Writer = os.Stderr
 )
 
-func PrintJSON(v interface{}) {
-	enc := json.NewEncoder(Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
+func PrintJSON(value interface{}) {
+	encoder := json.NewEncoder(Stdout)
+	encoder.SetIndent("", "  ")
+	_ = encoder.Encode(value)
 }
 
-func PrintError(msg string, args ...interface{}) {
-	_, _ = fmt.Fprintf(Stderr, color.RedString("Error: ")+msg+"\n", args...)
+func PrintError(message string, args ...interface{}) {
+	_, _ = fmt.Fprintf(Stderr, color.RedString("Error: ")+message+"\n", args...)
 }
 
-func PrintSuccess(msg string, args ...interface{}) {
-	_, _ = fmt.Fprintf(Stdout, color.GreenString("✓ ")+msg+"\n", args...)
+func PrintSuccess(message string, args ...interface{}) {
+	_, _ = fmt.Fprintf(Stdout, color.GreenString("✓ ")+message+"\n", args...)
 }
 
-func PrintInfo(msg string, args ...interface{}) {
-	_, _ = fmt.Fprintf(Stdout, msg+"\n", args...)
+func PrintInfo(message string, args ...interface{}) {
+	_, _ = fmt.Fprintf(Stdout, message+"\n", args...)
 }
 
 func PrintTable(headers []string, rows [][]string) {
@@ -40,66 +40,63 @@ func PrintTable(headers []string, rows [][]string) {
 		return
 	}
 
-	// Calculate column widths
 	widths := make([]int, len(headers))
-	for i, h := range headers {
-		widths[i] = len(h)
+	for index, header := range headers {
+		widths[index] = len(header)
 	}
 	for _, row := range rows {
-		for i, cell := range row {
-			if i < len(widths) && len(cell) > widths[i] {
-				widths[i] = len(cell)
+		for index, cell := range row {
+			if index < len(widths) && len(cell) > widths[index] {
+				widths[index] = len(cell)
 			}
 		}
 	}
 
-	// Print header
 	headerParts := make([]string, len(headers))
-	for i, h := range headers {
-		headerParts[i] = fmt.Sprintf("%-*s", widths[i], h)
+	for index, header := range headers {
+		headerParts[index] = fmt.Sprintf("%-*s", widths[index], header)
 	}
 	headerLine := strings.Join(headerParts, "  ")
 	_, _ = fmt.Fprintln(Stdout, color.New(color.Bold).Sprint(headerLine))
 
-	// Print rows
 	for _, row := range rows {
 		parts := make([]string, len(headers))
-		for i := range headers {
+		for index := range headers {
 			cell := ""
-			if i < len(row) {
-				cell = row[i]
+			if index < len(row) {
+				cell = row[index]
 			}
-			parts[i] = fmt.Sprintf("%-*s", widths[i], cell)
+			parts[index] = fmt.Sprintf("%-*s", widths[index], cell)
 		}
 		_, _ = fmt.Fprintln(Stdout, strings.Join(parts, "  "))
 	}
 }
 
-func FormatTime(ts int64) string {
-	if ts == 0 {
+func FormatTime(timestamp int64) string {
+	if timestamp == 0 {
 		return ""
 	}
-	t := time.Unix(ts/1000, 0)
+	parsed := time.Unix(timestamp/1000, 0)
 	now := time.Now()
-	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
-		return t.Format("15:04")
+	if parsed.Year() == now.Year() && parsed.YearDay() == now.YearDay() {
+		return parsed.Format("15:04")
 	}
-	if now.Sub(t) < 7*24*time.Hour {
-		return t.Format("Mon 15:04")
+	if now.Sub(parsed) < 7*24*time.Hour {
+		return parsed.Format("Mon 15:04")
 	}
-	return t.Format("2006-01-02 15:04")
+	return parsed.Format("2006-01-02 15:04")
 }
 
-func Truncate(s string, max int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= max {
-		return s
+func Truncate(source string, max int) string {
+	source = strings.ReplaceAll(source, "\n", " ")
+	if len(source) <= max {
+		return source
 	}
-	return s[:max-3] + "..."
+	return source[:max-3] + "..."
 }
 
-func ChannelTypeName(t string) string {
-	switch t {
+func ChannelTypeName(channelType string) string {
+	switch channelType {
 	case "O":
 		return "public"
 	case "P":
@@ -109,6 +106,6 @@ func ChannelTypeName(t string) string {
 	case "G":
 		return "group"
 	default:
-		return t
+		return channelType
 	}
 }
