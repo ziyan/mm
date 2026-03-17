@@ -108,7 +108,15 @@ func init() {
 		RunE:  postPinnedRun,
 	}
 
-	postCommand.AddCommand(createCommand, listCommand, threadCommand, replyCommand, editCommand, deleteCommand, pinCommand, unpinCommand, reactCommand, unreactCommand, searchCommand, pinnedCommand)
+	unreadCommand := &cobra.Command{
+		Use:   "unread <channel>",
+		Short: "List unread messages in a channel",
+		Args:  cobra.ExactArgs(1),
+		RunE:  postUnreadRun,
+	}
+	unreadCommand.Flags().IntP("before", "b", 0, "Include N messages before the unread boundary")
+
+	postCommand.AddCommand(createCommand, listCommand, threadCommand, replyCommand, editCommand, deleteCommand, pinCommand, unpinCommand, reactCommand, unreactCommand, searchCommand, pinnedCommand, unreadCommand)
 	rootCommand.AddCommand(postCommand)
 }
 
@@ -519,6 +527,52 @@ func postPinnedRun(command *cobra.Command, args []string) error {
 	userCache := make(map[string]string)
 	for _, postId := range postList.Order {
 		post := postList.Posts[postId]
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+	}
+	return nil
+}
+
+func postUnreadRun(command *cobra.Command, args []string) error {
+	apiClient, server, err := client.New()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	teamId, err := resolveTeamId(ctx, command, apiClient, server)
+	if err != nil {
+		return err
+	}
+
+	currentUser, _, err := apiClient.GetMe(ctx, "")
+	if err != nil {
+		return err
+	}
+
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	if err != nil {
+		return err
+	}
+
+	contextBefore, _ := command.Flags().GetInt("before")
+
+	postList, _, err := apiClient.GetPostsAroundLastUnread(ctx, currentUser.Id, channelId, contextBefore, 200, false)
+	if err != nil {
+		return fmt.Errorf("getting unread posts: %w", err)
+	}
+
+	if printer.JSONOutput {
+		printer.PrintJSON(postList)
+		return nil
+	}
+
+	if len(postList.Order) == 0 {
+		printer.PrintInfo("No unread messages in %s", args[0])
+		return nil
+	}
+
+	userCache := make(map[string]string)
+	for index := len(postList.Order) - 1; index >= 0; index-- {
+		post := postList.Posts[postList.Order[index]]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 	return nil
