@@ -36,7 +36,7 @@ func init() {
 	}
 	createIncomingCommand.Flags().String("display-name", "", "Display name (required)")
 	createIncomingCommand.Flags().String("description", "", "Description")
-	createIncomingCommand.MarkFlagRequired("display-name")
+	_ = createIncomingCommand.MarkFlagRequired("display-name")
 
 	createOutgoingCommand := &cobra.Command{
 		Use:   "create-outgoing <channel>",
@@ -48,8 +48,8 @@ func init() {
 	createOutgoingCommand.Flags().String("description", "", "Description")
 	createOutgoingCommand.Flags().StringArray("trigger", nil, "Trigger words")
 	createOutgoingCommand.Flags().StringArray("url", nil, "Callback URLs")
-	createOutgoingCommand.MarkFlagRequired("display-name")
-	createOutgoingCommand.MarkFlagRequired("url")
+	_ = createOutgoingCommand.MarkFlagRequired("display-name")
+	_ = createOutgoingCommand.MarkFlagRequired("url")
 
 	deleteCommand := &cobra.Command{
 		Use:   "delete <webhook-id>",

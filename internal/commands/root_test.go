@@ -54,7 +54,7 @@ func TestRootCommandSubcommands(t *testing.T) {
 func TestJSONFlag(t *testing.T) {
 	printer.JSONOutput = false
 	rootCommand.SetArgs([]string{"--json", "--help"})
-	rootCommand.Execute()
+	_ = rootCommand.Execute()
 
 	// PersistentPreRun should have set JSONOutput
 	// We can't easily test this without executing a real command,

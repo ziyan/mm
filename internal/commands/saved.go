@@ -51,7 +51,7 @@ func printPostList(apiClient *model.Client4, ctx context.Context, postList *mode
 	userCache := make(map[string]string)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 }
 

@@ -90,9 +90,9 @@ func threadListRun(command *cobra.Command, args []string) error {
 	unreadOnly, _ := command.Flags().GetBool("unread")
 
 	options := model.GetUserThreadsOpts{
-		PageSize:  uint64(count),
-		Unread:    unreadOnly,
-		Extended:  true,
+		PageSize:   uint64(count),
+		Unread:     unreadOnly,
+		Extended:   true,
 		TotalsOnly: false,
 	}
 
@@ -168,14 +168,14 @@ func threadViewRun(command *cobra.Command, args []string) error {
 
 	if thread.Post != nil {
 		userCache := make(map[string]string)
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, thread.Post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, thread.Post, userCache))
 
 		postList, _, err := apiClient.GetPostThread(ctx, threadId, "", false)
 		if err == nil {
 			for index := len(postList.Order) - 1; index >= 0; index-- {
 				post := postList.Posts[postList.Order[index]]
 				if post.Id != threadId {
-					fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+					_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 				}
 			}
 		}

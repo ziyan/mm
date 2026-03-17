@@ -242,7 +242,7 @@ func postListRun(command *cobra.Command, args []string) error {
 	userCache := make(map[string]string)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 	return nil
 }
@@ -269,7 +269,7 @@ func postThreadRun(command *cobra.Command, args []string) error {
 	userCache := make(map[string]string)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 	return nil
 }
@@ -480,7 +480,7 @@ func postSearchRun(command *cobra.Command, args []string) error {
 	userCache := make(map[string]string)
 	for _, postId := range postList.Order {
 		post := postList.Posts[postId]
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 	return nil
 }
@@ -519,7 +519,7 @@ func postPinnedRun(command *cobra.Command, args []string) error {
 	userCache := make(map[string]string)
 	for _, postId := range postList.Order {
 		post := postList.Posts[postId]
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 	return nil
 }

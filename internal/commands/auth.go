@@ -27,7 +27,7 @@ func init() {
 	loginCommand.Flags().StringP("token", "t", "", "Personal access token")
 	loginCommand.Flags().StringP("user", "u", "", "Username or email (for password login)")
 	loginCommand.Flags().StringP("password", "p", "", "Password (for password login)")
-	loginCommand.MarkFlagRequired("url")
+	_ = loginCommand.MarkFlagRequired("url")
 
 	statusCommand := &cobra.Command{
 		Use:   "status",

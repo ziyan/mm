@@ -1,0 +1,16 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - unused
+    - govet
+    - ineffassign
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -ST1000  # package comments not required
+        - -ST1003  # project uses camelCase for acronyms (teamId, userId, etc.)
+        - -ST1006  # receiver name "self" is intentional per project convention

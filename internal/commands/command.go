@@ -149,10 +149,10 @@ func pluginListRun(command *cobra.Command, args []string) error {
 
 	var rows [][]string
 	for _, plugin := range plugins.Active {
-		rows = append(rows, []string{plugin.Manifest.Id, plugin.Manifest.Name, plugin.Manifest.Version, "active"})
+		rows = append(rows, []string{plugin.Id, plugin.Name, plugin.Version, "active"})
 	}
 	for _, plugin := range plugins.Inactive {
-		rows = append(rows, []string{plugin.Manifest.Id, plugin.Manifest.Name, plugin.Manifest.Version, "inactive"})
+		rows = append(rows, []string{plugin.Id, plugin.Name, plugin.Version, "inactive"})
 	}
 
 	if len(rows) == 0 {

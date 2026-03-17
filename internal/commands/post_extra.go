@@ -61,7 +61,7 @@ func postHistoryRun(command *cobra.Command, args []string) error {
 
 	userCache := make(map[string]string)
 	for _, post := range history {
-		fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}
 	return nil
 }
@@ -88,8 +88,8 @@ func postRemindRun(command *cobra.Command, args []string) error {
 	targetTime := time.Now().Add(duration).Unix()
 
 	_, err = apiClient.SetPostReminder(ctx, &model.PostReminder{
-		PostId:   postId,
-		UserId:   currentUser.Id,
+		PostId:     postId,
+		UserId:     currentUser.Id,
 		TargetTime: targetTime,
 	})
 	if err != nil {

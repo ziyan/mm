@@ -146,7 +146,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 					prefix = dim.Sprint("[reply] ")
 				}
 
-				fmt.Fprintf(printer.Stdout, "%s %s%s %s: %s\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s %s%s %s: %s\n",
 					dim.Sprint(printer.FormatTime(post.CreateAt)),
 					prefix,
 					bold.Sprintf("#%s", channelName),
@@ -162,7 +162,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 				if broadcast != nil {
 					channelId = broadcast.ChannelId
 				}
-				fmt.Fprintf(printer.Stdout, "%s #%s %s is typing...\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s #%s %s is typing...\n",
 					dim.Sprint(printer.FormatTime(0)),
 					resolveChannelName(channelId),
 					resolveUsername(userId),
@@ -172,7 +172,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 				data := event.GetData()
 				userId, _ := data["user_id"].(string)
 				status, _ := data["status"].(string)
-				fmt.Fprintf(printer.Stdout, "%s %s is now %s\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s %s is now %s\n",
 					dim.Sprint("status"),
 					resolveUsername(userId),
 					status,
@@ -189,7 +189,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 				if eventType == "reaction_removed" {
 					action = "unreacted"
 				}
-				fmt.Fprintf(printer.Stdout, "%s %s %s :%s: on %s\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s %s %s :%s: on %s\n",
 					dim.Sprint("reaction"),
 					resolveUsername(reaction.UserId),
 					action,
@@ -203,7 +203,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 				if broadcast != nil {
 					channelId = broadcast.ChannelId
 				}
-				fmt.Fprintf(printer.Stdout, "%s channel %s: %s\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s channel %s: %s\n",
 					dim.Sprint("channel"),
 					eventType,
 					resolveChannelName(channelId),
@@ -217,7 +217,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 				if broadcast != nil {
 					channelId = broadcast.ChannelId
 				}
-				fmt.Fprintf(printer.Stdout, "%s %s %s in %s\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s %s %s in %s\n",
 					dim.Sprint("member"),
 					resolveUsername(userId),
 					strings.TrimPrefix(eventType, "user_"),
@@ -225,7 +225,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 				)
 
 			default:
-				fmt.Fprintf(printer.Stdout, "%s %s\n",
+				_, _ = fmt.Fprintf(printer.Stdout, "%s %s\n",
 					dim.Sprint("event"),
 					eventType,
 				)

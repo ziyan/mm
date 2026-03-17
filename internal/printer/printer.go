@@ -20,19 +20,19 @@ var (
 func PrintJSON(v interface{}) {
 	enc := json.NewEncoder(Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(v)
+	_ = enc.Encode(v)
 }
 
 func PrintError(msg string, args ...interface{}) {
-	fmt.Fprintf(Stderr, color.RedString("Error: ")+msg+"\n", args...)
+	_, _ = fmt.Fprintf(Stderr, color.RedString("Error: ")+msg+"\n", args...)
 }
 
 func PrintSuccess(msg string, args ...interface{}) {
-	fmt.Fprintf(Stdout, color.GreenString("✓ ")+msg+"\n", args...)
+	_, _ = fmt.Fprintf(Stdout, color.GreenString("✓ ")+msg+"\n", args...)
 }
 
 func PrintInfo(msg string, args ...interface{}) {
-	fmt.Fprintf(Stdout, msg+"\n", args...)
+	_, _ = fmt.Fprintf(Stdout, msg+"\n", args...)
 }
 
 func PrintTable(headers []string, rows [][]string) {
@@ -59,7 +59,7 @@ func PrintTable(headers []string, rows [][]string) {
 		headerParts[i] = fmt.Sprintf("%-*s", widths[i], h)
 	}
 	headerLine := strings.Join(headerParts, "  ")
-	fmt.Fprintln(Stdout, color.New(color.Bold).Sprint(headerLine))
+	_, _ = fmt.Fprintln(Stdout, color.New(color.Bold).Sprint(headerLine))
 
 	// Print rows
 	for _, row := range rows {
@@ -71,7 +71,7 @@ func PrintTable(headers []string, rows [][]string) {
 			}
 			parts[i] = fmt.Sprintf("%-*s", widths[i], cell)
 		}
-		fmt.Fprintln(Stdout, strings.Join(parts, "  "))
+		_, _ = fmt.Fprintln(Stdout, strings.Join(parts, "  "))
 	}
 }
 
