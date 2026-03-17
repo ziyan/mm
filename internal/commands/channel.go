@@ -81,10 +81,19 @@ func init() {
 	rootCommand.AddCommand(channelCommand)
 }
 
-func resolveChannelId(ctx context.Context, apiClient *model.Client4, teamId, channelName string) (string, error) {
-	channel, _, err := apiClient.GetChannelByName(ctx, channelName, teamId, "")
+func resolveChannelId(ctx context.Context, apiClient *model.Client4, teamId, channelNameOrId string) (string, error) {
+	// Try as channel ID first (26-char Mattermost IDs)
+	if len(channelNameOrId) == 26 {
+		channel, _, err := apiClient.GetChannel(ctx, channelNameOrId)
+		if err == nil {
+			return channel.Id, nil
+		}
+	}
+
+	// Try as channel name
+	channel, _, err := apiClient.GetChannelByName(ctx, channelNameOrId, teamId, "")
 	if err != nil {
-		return "", fmt.Errorf("channel %q not found: %w", channelName, err)
+		return "", fmt.Errorf("channel %q not found: %w", channelNameOrId, err)
 	}
 	return channel.Id, nil
 }
