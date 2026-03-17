@@ -75,6 +75,7 @@ func init() {
 		Short: "List channels with unread messages",
 		RunE:  channelUnreadRun,
 	}
+	unreadCommand.Flags().BoolP("mentions", "m", false, "Only show channels with mentions")
 
 	channelCommand.AddCommand(listCommand, joinCommand, leaveCommand, createCommand, infoCommand, membersCommand, archiveCommand, unreadCommand)
 	rootCommand.AddCommand(channelCommand)
@@ -379,6 +380,8 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 		messageCount int64
 	}
 
+	mentionsOnly, _ := command.Flags().GetBool("mentions")
+
 	var unreadEntries []unreadEntry
 	for _, channel := range channels {
 		member, ok := memberByChannel[channel.Id]
@@ -386,6 +389,13 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 			continue
 		}
 		unreadCount := channel.TotalMsgCount - member.MsgCount
+		if mentionsOnly {
+			if member.MentionCount == 0 {
+				continue
+			}
+		} else if unreadCount <= 0 && member.MentionCount == 0 {
+			continue
+		}
 		if unreadCount > 0 || member.MentionCount > 0 {
 			unreadEntries = append(unreadEntries, unreadEntry{
 				name:         channel.DisplayName,
