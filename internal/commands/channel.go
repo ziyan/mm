@@ -356,54 +356,78 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Fetch all channel memberships in a single call instead of per-channel
+	members, _, err := apiClient.GetChannelMembersForUser(ctx, currentUser.Id, teamId, "")
+	if err != nil {
+		return err
+	}
+
+	memberByChannel := make(map[string]*model.ChannelMember)
+	for index := range members {
+		memberByChannel[members[index].ChannelId] = &members[index]
+	}
+
+	channelNameById := make(map[string]string)
+	for _, channel := range channels {
+		channelNameById[channel.Id] = channel.DisplayName
+	}
+
+	type unreadEntry struct {
+		name         string
+		id           string
+		mentionCount int64
+		messageCount int64
+	}
+
+	var unreadEntries []unreadEntry
+	for _, channel := range channels {
+		member, ok := memberByChannel[channel.Id]
+		if !ok {
+			continue
+		}
+		unreadCount := channel.TotalMsgCount - member.MsgCount
+		if unreadCount > 0 || member.MentionCount > 0 {
+			unreadEntries = append(unreadEntries, unreadEntry{
+				name:         channel.DisplayName,
+				id:           channel.Id,
+				mentionCount: member.MentionCount,
+				messageCount: unreadCount,
+			})
+		}
+	}
+
 	if printer.JSONOutput {
-		type unreadInfo struct {
+		type unreadJSON struct {
 			Name         string `json:"name"`
 			ID           string `json:"id"`
 			MentionCount int64  `json:"mention_count"`
 			MessageCount int64  `json:"message_count"`
 		}
-		var result []unreadInfo
-		for _, channel := range channels {
-			if channel.TotalMsgCount > 0 {
-				member, _, err := apiClient.GetChannelMember(ctx, channel.Id, currentUser.Id, "")
-				if err != nil {
-					continue
-				}
-				unreadCount := channel.TotalMsgCount - member.MsgCount
-				if unreadCount > 0 || member.MentionCount > 0 {
-					result = append(result, unreadInfo{
-						Name:         channel.Name,
-						ID:           channel.Id,
-						MentionCount: member.MentionCount,
-						MessageCount: unreadCount,
-					})
-				}
-			}
+		var result []unreadJSON
+		for _, entry := range unreadEntries {
+			result = append(result, unreadJSON{
+				Name:         entry.name,
+				ID:           entry.id,
+				MentionCount: entry.mentionCount,
+				MessageCount: entry.messageCount,
+			})
 		}
 		printer.PrintJSON(result)
 		return nil
 	}
 
-	var rows [][]string
-	for _, channel := range channels {
-		member, _, err := apiClient.GetChannelMember(ctx, channel.Id, currentUser.Id, "")
-		if err != nil {
-			continue
-		}
-		unreadCount := channel.TotalMsgCount - member.MsgCount
-		if unreadCount > 0 || member.MentionCount > 0 {
-			mention := ""
-			if member.MentionCount > 0 {
-				mention = fmt.Sprintf("@%d", member.MentionCount)
-			}
-			rows = append(rows, []string{channel.DisplayName, fmt.Sprintf("%d", unreadCount), mention})
-		}
-	}
-
-	if len(rows) == 0 {
+	if len(unreadEntries) == 0 {
 		printer.PrintInfo("No unread channels")
 		return nil
+	}
+
+	var rows [][]string
+	for _, entry := range unreadEntries {
+		mention := ""
+		if entry.mentionCount > 0 {
+			mention = fmt.Sprintf("@%d", entry.mentionCount)
+		}
+		rows = append(rows, []string{entry.name, fmt.Sprintf("%d", entry.messageCount), mention})
 	}
 	printer.PrintTable([]string{"CHANNEL", "UNREAD", "MENTIONS"}, rows)
 	return nil
