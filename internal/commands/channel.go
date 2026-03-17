@@ -396,7 +396,8 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 	}
 
 	type unreadEntry struct {
-		name         string
+		slug         string
+		displayName  string
 		id           string
 		mentionCount int64
 		messageCount int64
@@ -420,7 +421,8 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 		}
 		if unreadCount > 0 || member.MentionCount > 0 {
 			unreadEntries = append(unreadEntries, unreadEntry{
-				name:         channel.DisplayName,
+				slug:         channel.Name,
+				displayName:  channel.DisplayName,
 				id:           channel.Id,
 				mentionCount: member.MentionCount,
 				messageCount: unreadCount,
@@ -430,7 +432,8 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 
 	if printer.JSONOutput {
 		type unreadJSON struct {
-			Name         string `json:"name"`
+			Slug         string `json:"slug"`
+			DisplayName  string `json:"display_name"`
 			ID           string `json:"id"`
 			MentionCount int64  `json:"mention_count"`
 			MessageCount int64  `json:"message_count"`
@@ -438,7 +441,8 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 		var result []unreadJSON
 		for _, entry := range unreadEntries {
 			result = append(result, unreadJSON{
-				Name:         entry.name,
+				Slug:         entry.slug,
+				DisplayName:  entry.displayName,
 				ID:           entry.id,
 				MentionCount: entry.mentionCount,
 				MessageCount: entry.messageCount,
@@ -459,8 +463,8 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 		if entry.mentionCount > 0 {
 			mention = fmt.Sprintf("@%d", entry.mentionCount)
 		}
-		rows = append(rows, []string{entry.name, fmt.Sprintf("%d", entry.messageCount), mention})
+		rows = append(rows, []string{entry.slug, entry.displayName, fmt.Sprintf("%d", entry.messageCount), mention})
 	}
-	printer.PrintTable([]string{"CHANNEL", "UNREAD", "MENTIONS"}, rows)
+	printer.PrintTable([]string{"NAME", "DISPLAY NAME", "UNREAD", "MENTIONS"}, rows)
 	return nil
 }
