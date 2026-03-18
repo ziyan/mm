@@ -161,23 +161,35 @@ func threadViewRun(command *cobra.Command, args []string) error {
 		return fmt.Errorf("getting thread: %w", err)
 	}
 
-	if printer.JSONOutput {
-		printer.PrintJSON(thread)
+	if thread.Post == nil {
+		if printer.JSONOutput {
+			printer.PrintJSON(thread)
+		}
 		return nil
 	}
 
-	if thread.Post != nil {
-		userCache := make(map[string]string)
-		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, thread.Post, userCache))
+	postList, _, err := apiClient.GetPostThread(ctx, threadId, "", false)
+	if err != nil {
+		if printer.JSONOutput {
+			printer.PrintJSON(thread)
+			return nil
+		}
+		return fmt.Errorf("getting thread posts: %w", err)
+	}
 
-		postList, _, err := apiClient.GetPostThread(ctx, threadId, "", false)
-		if err == nil {
-			for index := len(postList.Order) - 1; index >= 0; index-- {
-				post := postList.Posts[postList.Order[index]]
-				if post.Id != threadId {
-					_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
-				}
-			}
+	if printer.JSONOutput {
+		printPostListWithUsers(ctx, apiClient, postList)
+		return nil
+	}
+
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
+	_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, thread.Post, userCache))
+	for index := len(postList.Order) - 1; index >= 0; index-- {
+		post := postList.Posts[postList.Order[index]]
+		if post.Id != threadId {
+			_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 		}
 	}
 	return nil

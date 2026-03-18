@@ -243,11 +243,13 @@ func postListRun(command *cobra.Command, args []string) error {
 	}
 
 	if printer.JSONOutput {
-		printer.PrintJSON(postList)
+		printPostListWithUsers(ctx, apiClient, postList)
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
@@ -270,11 +272,13 @@ func postThreadRun(command *cobra.Command, args []string) error {
 	}
 
 	if printer.JSONOutput {
-		printer.PrintJSON(postList)
+		printPostListWithUsers(ctx, apiClient, postList)
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
@@ -475,17 +479,23 @@ func postSearchRun(command *cobra.Command, args []string) error {
 		return fmt.Errorf("searching: %w", err)
 	}
 
-	if printer.JSONOutput {
-		printer.PrintJSON(postList)
-		return nil
-	}
-
 	if len(postList.Order) == 0 {
+		if printer.JSONOutput {
+			printer.PrintJSON(postList)
+			return nil
+		}
 		printer.PrintInfo("No results found")
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	if printer.JSONOutput {
+		printPostListWithUsers(ctx, apiClient, postList)
+		return nil
+	}
+
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for _, postId := range postList.Order {
 		post := postList.Posts[postId]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
@@ -514,17 +524,23 @@ func postPinnedRun(command *cobra.Command, args []string) error {
 		return fmt.Errorf("getting pinned posts: %w", err)
 	}
 
-	if printer.JSONOutput {
-		printer.PrintJSON(postList)
-		return nil
-	}
-
 	if len(postList.Order) == 0 {
+		if printer.JSONOutput {
+			printer.PrintJSON(postList)
+			return nil
+		}
 		printer.PrintInfo("No pinned posts")
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	if printer.JSONOutput {
+		printPostListWithUsers(ctx, apiClient, postList)
+		return nil
+	}
+
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for _, postId := range postList.Order {
 		post := postList.Posts[postId]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
@@ -560,17 +576,23 @@ func postUnreadRun(command *cobra.Command, args []string) error {
 		return fmt.Errorf("getting unread posts: %w", err)
 	}
 
-	if printer.JSONOutput {
-		printer.PrintJSON(postList)
-		return nil
-	}
-
 	if len(postList.Order) == 0 {
+		if printer.JSONOutput {
+			printer.PrintJSON(postList)
+			return nil
+		}
 		printer.PrintInfo("No unread messages in %s", args[0])
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	if printer.JSONOutput {
+		printPostListWithUsers(ctx, apiClient, postList)
+		return nil
+	}
+
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))

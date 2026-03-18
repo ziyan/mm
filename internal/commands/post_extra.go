@@ -49,17 +49,24 @@ func postHistoryRun(command *cobra.Command, args []string) error {
 		return fmt.Errorf("getting edit history: %w", err)
 	}
 
-	if printer.JSONOutput {
-		printer.PrintJSON(history)
-		return nil
-	}
-
 	if len(history) == 0 {
+		if printer.JSONOutput {
+			printer.PrintJSON(history)
+			return nil
+		}
 		printer.PrintInfo("No edit history")
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	userIds := collectUserIdsFromPosts(history)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+
+	if printer.JSONOutput {
+		printPostsWithUsers(ctx, apiClient, history)
+		return nil
+	}
+
+	userCache := buildUserCache(users)
 	for _, post := range history {
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
 	}

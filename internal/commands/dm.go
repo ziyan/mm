@@ -126,11 +126,13 @@ func dmReadRun(command *cobra.Command, args []string) error {
 	}
 
 	if printer.JSONOutput {
-		printer.PrintJSON(postList)
+		printPostListWithUsers(ctx, apiClient, postList)
 		return nil
 	}
 
-	userCache := make(map[string]string)
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))

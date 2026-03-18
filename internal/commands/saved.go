@@ -48,7 +48,9 @@ func printPostList(apiClient *model.Client4, ctx context.Context, postList *mode
 		printer.PrintInfo("No posts")
 		return
 	}
-	userCache := make(map[string]string)
+	userIds := collectUserIdsFromPostList(postList)
+	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
+	userCache := buildUserCache(users)
 	for index := len(postList.Order) - 1; index >= 0; index-- {
 		post := postList.Posts[postList.Order[index]]
 		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
@@ -84,7 +86,7 @@ func savedListRun(command *cobra.Command, args []string) error {
 			return fmt.Errorf("listing saved posts: %w", err)
 		}
 		if printer.JSONOutput {
-			printer.PrintJSON(result)
+			printPostListWithUsers(ctx, apiClient, result)
 			return nil
 		}
 		printPostList(apiClient, ctx, result)
@@ -94,7 +96,7 @@ func savedListRun(command *cobra.Command, args []string) error {
 			return fmt.Errorf("listing saved posts: %w", err)
 		}
 		if printer.JSONOutput {
-			printer.PrintJSON(result)
+			printPostListWithUsers(ctx, apiClient, result)
 			return nil
 		}
 		printPostList(apiClient, ctx, result)
