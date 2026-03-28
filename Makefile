@@ -20,21 +20,17 @@ clean:
 	rm -rf coverage/
 
 test:
-	docker compose -f test/docker-compose.yml up -d --wait
-	MM_SERVER_URL=http://localhost:8065 $(GO) test $(GOFLAGS) ./... -v -count=1 -timeout=5m; \
-	status=$$?; \
-	docker compose -f test/docker-compose.yml down -v; \
-	exit $$status
+	@trap 'docker compose -f test/docker-compose.yml down -v' EXIT; \
+	docker compose -f test/docker-compose.yml up -d --wait && \
+	MM_SERVER_URL=http://localhost:8065 $(GO) test $(GOFLAGS) ./... -v -count=1 -timeout=5m
 
 coverage:
-	docker compose -f test/docker-compose.yml up -d --wait
-	mkdir -p coverage
+	@trap 'docker compose -f test/docker-compose.yml down -v' EXIT; \
+	docker compose -f test/docker-compose.yml up -d --wait && \
+	mkdir -p coverage && \
 	MM_SERVER_URL=http://localhost:8065 gotestsum --format testdox --junitfile coverage/junit.xml -- $(GOFLAGS) -coverprofile=coverage/coverage.out -covermode=atomic -count=1 -timeout=5m ./...; \
-	status=$$?; \
-	docker compose -f test/docker-compose.yml down -v; \
 	$(GO) tool cover -html=coverage/coverage.out -o coverage/coverage.html; \
-	$(GO) tool cover -func=coverage/coverage.out; \
-	exit $$status
+	$(GO) tool cover -func=coverage/coverage.out
 
 lint:
 	golangci-lint run ./...
