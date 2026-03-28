@@ -1,4 +1,4 @@
-.PHONY: build clean test coverage lint format vendor tidy e2e e2e-up e2e-down
+.PHONY: build clean test coverage lint format vendor tidy
 
 BINARY := mm
 BUILD_DIR := .
@@ -16,17 +16,25 @@ build:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BUILD_DIR)/$(BINARY) ./command/
 
 clean:
-	rm -f $(BUILD_DIR)/$(BINARY) mm-e2e-test
+	rm -f $(BUILD_DIR)/$(BINARY)
 	rm -rf coverage/
 
 test:
-	$(GO) test $(GOFLAGS) ./... -v
+	docker compose -f test/docker-compose.yml up -d --wait
+	MM_SERVER_URL=http://localhost:8065 $(GO) test $(GOFLAGS) ./... -v -count=1 -timeout=5m; \
+	status=$$?; \
+	docker compose -f test/docker-compose.yml down -v; \
+	exit $$status
 
 coverage:
+	docker compose -f test/docker-compose.yml up -d --wait
 	mkdir -p coverage
-	gotestsum --format testdox --junitfile coverage/junit.xml -- $(GOFLAGS) -coverprofile=coverage/coverage.out -covermode=atomic ./...
-	$(GO) tool cover -html=coverage/coverage.out -o coverage/coverage.html
-	$(GO) tool cover -func=coverage/coverage.out
+	MM_SERVER_URL=http://localhost:8065 gotestsum --format testdox --junitfile coverage/junit.xml -- $(GOFLAGS) -coverprofile=coverage/coverage.out -covermode=atomic -count=1 -timeout=5m ./...; \
+	status=$$?; \
+	docker compose -f test/docker-compose.yml down -v; \
+	$(GO) tool cover -html=coverage/coverage.out -o coverage/coverage.html; \
+	$(GO) tool cover -func=coverage/coverage.out; \
+	exit $$status
 
 lint:
 	golangci-lint run ./...
@@ -41,14 +49,3 @@ vendor:
 
 tidy:
 	$(GO) mod tidy
-
-e2e-up:
-	docker compose -f test/docker-compose.yml up -d --wait
-
-e2e-down:
-	docker compose -f test/docker-compose.yml down -v
-
-e2e: e2e-up
-	$(GO) test $(GOFLAGS) -tags=e2e -v -count=1 -timeout=5m ./test/
-	$(GO) tool cover -func=coverage/e2e-coverage.out
-	$(MAKE) e2e-down
