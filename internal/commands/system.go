@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -62,9 +63,14 @@ func serverInfoRun(command *cobra.Command, args []string) error {
 	}
 	ctx := context.Background()
 
-	clientConfig, _, err := apiClient.GetClientConfig(ctx, "")
+	response, err := apiClient.DoAPIGet(ctx, "/config/client?format=old", "")
 	if err != nil {
 		return fmt.Errorf("getting server info: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	var clientConfig map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&clientConfig); err != nil {
+		return fmt.Errorf("parsing server info: %w", err)
 	}
 
 	if printer.JSONOutput {

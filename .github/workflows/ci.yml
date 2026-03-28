@@ -34,16 +34,25 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Start Mattermost
+        run: docker compose -f test/docker-compose.yml up -d --wait
+
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
       - name: Run tests
+        env:
+          MM_SERVER_URL: http://localhost:8065
         run: |
           mkdir -p coverage
-          gotestsum --format testdox --junitfile coverage/junit.xml -- -mod=vendor -coverprofile=coverage/coverage.out -covermode=atomic ./...
+          gotestsum --format testdox --junitfile coverage/junit.xml -- -mod=vendor -coverprofile=coverage/coverage.out -covermode=atomic -count=1 -timeout=5m ./...
 
       - name: Coverage report
         run: go tool cover -func=coverage/coverage.out
+
+      - name: Stop Mattermost
+        if: always()
+        run: docker compose -f test/docker-compose.yml down -v
 
       - name: Upload test results
         if: always()
