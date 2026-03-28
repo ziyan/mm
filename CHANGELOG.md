@@ -6,6 +6,21 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## Unreleased
 
+## [0.2.0] - 2026-03-28
+
+### Fixed
+
+- `server info` now works with Mattermost 10.x by using `format=old` query parameter for the client config API.
+- `dm list` no longer fails with an invalid API URL; switched to an endpoint that does not require a team ID.
+- `dm list` now resolves DM partner usernames instead of showing raw user ID pairs.
+
+### Added
+
+- Integration test suite (44 tests) running against a real Mattermost instance via Docker Compose, covering auth, teams, channels, posts, threads, DMs, files, and more.
+- `make test` now starts Mattermost via Docker Compose and runs both unit and integration tests.
+- `make coverage` produces a combined coverage report including integration tests.
+- GitHub Actions CI runs integration tests with Mattermost.
+
 ## [0.1.0] - 2026-03-24
 
 ### Added
