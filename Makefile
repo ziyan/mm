@@ -1,4 +1,4 @@
-.PHONY: build clean test coverage lint format vendor tidy
+.PHONY: build clean test coverage lint format vendor tidy e2e e2e-up e2e-down
 
 BINARY := mm
 BUILD_DIR := .
@@ -16,7 +16,7 @@ build:
 	CGO_ENABLED=$(CGO_ENABLED) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BUILD_DIR)/$(BINARY) ./command/
 
 clean:
-	rm -f $(BUILD_DIR)/$(BINARY)
+	rm -f $(BUILD_DIR)/$(BINARY) mm-e2e-test
 	rm -rf coverage/
 
 test:
@@ -41,3 +41,14 @@ vendor:
 
 tidy:
 	$(GO) mod tidy
+
+e2e-up:
+	docker compose -f test/docker-compose.yml up -d --wait
+
+e2e-down:
+	docker compose -f test/docker-compose.yml down -v
+
+e2e: e2e-up
+	$(GO) test $(GOFLAGS) -tags=e2e -v -count=1 -timeout=5m ./test/
+	$(GO) tool cover -func=coverage/e2e-coverage.out
+	$(MAKE) e2e-down

@@ -152,7 +152,7 @@ func dmListRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channels, _, err := apiClient.GetChannelsForTeamForUser(ctx, "", currentUser.Id, false, "")
+	channels, _, err := apiClient.GetChannelsForUserWithLastDeleteAt(ctx, currentUser.Id, 0)
 	if err != nil {
 		return fmt.Errorf("listing channels: %w", err)
 	}
@@ -168,10 +168,40 @@ func dmListRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Collect user IDs from DM channel names to resolve usernames
+	userIdSet := make(map[string]struct{})
+	for _, channel := range channels {
+		if channel.Type == model.ChannelTypeDirect {
+			parts := strings.Split(channel.Name, "__")
+			for _, part := range parts {
+				if part != currentUser.Id {
+					userIdSet[part] = struct{}{}
+				}
+			}
+		}
+	}
+	userIds := make([]string, 0, len(userIdSet))
+	for id := range userIdSet {
+		userIds = append(userIds, id)
+	}
+	userCache, _ := resolveUsersByIds(ctx, apiClient, userIds)
+
 	var rows [][]string
 	for _, channel := range channels {
 		if channel.Type == model.ChannelTypeDirect || channel.Type == model.ChannelTypeGroup {
 			displayName := channel.DisplayName
+			if displayName == "" && channel.Type == model.ChannelTypeDirect {
+				// Resolve DM partner username from channel name
+				parts := strings.Split(channel.Name, "__")
+				for _, part := range parts {
+					if part != currentUser.Id {
+						if user, ok := userCache[part]; ok {
+							displayName = user.Username
+						}
+						break
+					}
+				}
+			}
 			if displayName == "" {
 				displayName = channel.Name
 			}
