@@ -131,7 +131,7 @@ func init() {
 }
 
 type formatPostOptions struct {
-	fullID          bool
+	fullId          bool
 	showReplyCount  bool
 	hideReplyPrefix bool
 }
@@ -179,12 +179,12 @@ func formatPostWithOptions(apiClient *model.Client4, ctx context.Context, post *
 		prefix = "  ↳ "
 	}
 
-	postID := post.Id[:8]
-	if options.fullID {
-		postID = post.Id
+	postId := post.Id[:8]
+	if options.fullId {
+		postId = post.Id
 	}
 
-	return fmt.Sprintf("%s%s  %s  %s  %s", prefix, postID, timestamp, username, message)
+	return fmt.Sprintf("%s%s  %s  %s  %s", prefix, postId, timestamp, username, message)
 }
 
 func postCreateRun(command *cobra.Command, args []string) error {
@@ -255,8 +255,8 @@ func validatePostListFlags(command *cobra.Command) error {
 	if threads && printer.JSONOutput {
 		return fmt.Errorf("--threads is not supported with JSON output; use --collapse-threads or omit --threads")
 	}
-	sinceStr, _ := command.Flags().GetString("since")
-	if sinceStr != "" && command.Flags().Changed("count") {
+	sinceString, _ := command.Flags().GetString("since")
+	if sinceString != "" && command.Flags().Changed("count") {
 		return fmt.Errorf("--count and --since cannot be used together; --since returns all posts after the given time")
 	}
 	return nil
@@ -300,21 +300,21 @@ func postListRun(command *cobra.Command, args []string) error {
 	}
 
 	count, _ := command.Flags().GetInt("count")
-	sinceStr, _ := command.Flags().GetString("since")
+	sinceString, _ := command.Flags().GetString("since")
 	userFilter, _ := command.Flags().GetString("user")
-	fullID, _ := command.Flags().GetBool("full-id")
+	fullId, _ := command.Flags().GetBool("full-id")
 	threads, _ := command.Flags().GetBool("threads")
 	collapseThreads, _ := command.Flags().GetBool("collapse-threads")
 
 	var postList *model.PostList
-	if sinceStr != "" {
-		sinceMillis, err := parseSince(sinceStr)
+	if sinceString != "" {
+		sinceMillis, err := parseSince(sinceString)
 		if err != nil {
 			return err
 		}
 		postList, _, err = apiClient.GetPostsSince(ctx, channelId, sinceMillis, false)
 		if err != nil {
-			return fmt.Errorf("listing posts since %s: %w", sinceStr, err)
+			return fmt.Errorf("listing posts since %s: %w", sinceString, err)
 		}
 	} else {
 		postList, _, err = apiClient.GetPostsForChannel(ctx, channelId, 0, count, "", false, false)
@@ -333,8 +333,8 @@ func postListRun(command *cobra.Command, args []string) error {
 	// printing them twice (once here and once during thread expansion).
 	var filteredOrder []string
 	for index := len(postList.Order) - 1; index >= 0; index-- {
-		postID := postList.Order[index]
-		post := postList.Posts[postID]
+		postId := postList.Order[index]
+		post := postList.Posts[postId]
 
 		// When --threads is active, defer user filtering to thread expansion
 		// so that replies by the target user under other users' roots are included.
@@ -349,7 +349,7 @@ func postListRun(command *cobra.Command, args []string) error {
 			continue
 		}
 
-		filteredOrder = append(filteredOrder, postID)
+		filteredOrder = append(filteredOrder, postId)
 	}
 
 	if printer.JSONOutput {
@@ -359,21 +359,21 @@ func postListRun(command *cobra.Command, args []string) error {
 			Posts: make(map[string]*model.Post, len(filteredOrder)),
 		}
 		// Reverse back to API order (newest first) for JSON
-		for index, postID := range filteredOrder {
-			filtered.Order[len(filteredOrder)-1-index] = postID
-			filtered.Posts[postID] = postList.Posts[postID]
+		for index, postId := range filteredOrder {
+			filtered.Order[len(filteredOrder)-1-index] = postId
+			filtered.Posts[postId] = postList.Posts[postId]
 		}
 		printPostListWithUsers(ctx, apiClient, filtered)
 		return nil
 	}
 
 	options := formatPostOptions{
-		fullID:         fullID,
+		fullId:         fullId,
 		showReplyCount: collapseThreads,
 	}
 
-	for _, postID := range filteredOrder {
-		post := postList.Posts[postID]
+	for _, postId := range filteredOrder {
+		post := postList.Posts[postId]
 
 		// If --threads is set and this is a root post with replies, fetch and inline the thread
 		if threads && post.RootId == "" && post.ReplyCount > 0 {
@@ -394,7 +394,7 @@ func postListRun(command *cobra.Command, args []string) error {
 			}
 			// Collect matching reply lines
 			threadOptions := formatPostOptions{
-				fullID: fullID,
+				fullId: fullId,
 			}
 			var replyLines []string
 			for threadIndex := len(threadList.Order) - 1; threadIndex >= 0; threadIndex-- {

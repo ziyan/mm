@@ -28,8 +28,8 @@ func TestNormalizePostId(t *testing.T) {
 }
 
 func TestPostFromJSON(t *testing.T) {
-	jsonStr := `{"id":"abc123","channel_id":"ch456","message":"hello world"}`
-	post, err := PostFromJSON(jsonStr)
+	jsonString := `{"id":"abc123","channel_id":"ch456","message":"hello world"}`
+	post, err := PostFromJSON(jsonString)
 	if err != nil {
 		t.Fatalf("PostFromJSON() error: %v", err)
 	}
@@ -142,10 +142,10 @@ func TestFormatPostWithFullID(t *testing.T) {
 		"user123456789012345678901": "testuser",
 	}
 
-	result := formatPostWithOptions(nil, nil, post, userCache, formatPostOptions{fullID: true})
+	result := formatPostWithOptions(nil, nil, post, userCache, formatPostOptions{fullId: true})
 
 	if !containsSubstring(result, "abcdefghijklmnopqrstuvwxyz") {
-		t.Error("formatPostWithOptions(fullID=true) should contain full post ID")
+		t.Error("formatPostWithOptions(fullId=true) should contain full post ID")
 	}
 }
 
@@ -294,9 +294,9 @@ func TestPostListFlagInteractions(t *testing.T) {
 
 	t.Run("threads with JSON output rejected", func(t *testing.T) {
 		// Simulate JSON mode
-		origJSON := printer.JSONOutput
+		originalJson := printer.JSONOutput
 		printer.JSONOutput = true
-		defer func() { printer.JSONOutput = origJSON }()
+		defer func() { printer.JSONOutput = originalJson }()
 
 		listCommand := findListCommand()
 		if err := listCommand.Flags().Set("threads", "true"); err != nil {
@@ -346,9 +346,9 @@ func TestPostListFlagInteractions(t *testing.T) {
 
 		// We need count to NOT be Changed. Since it might have been set above,
 		// we can't easily unset Changed. Instead, test the logic directly.
-		sinceStr, _ := listCommand.Flags().GetString("since")
-		if sinceStr != "24h" {
-			t.Fatalf("expected since=24h, got %q", sinceStr)
+		sinceString, _ := listCommand.Flags().GetString("since")
+		if sinceString != "24h" {
+			t.Fatalf("expected since=24h, got %q", sinceString)
 		}
 	})
 }
@@ -458,12 +458,12 @@ func TestPostListThreadsDedup(t *testing.T) {
 	// Simulate the filtering loop with threads=true
 	var filteredOrder []string
 	for index := len(postList.Order) - 1; index >= 0; index-- {
-		postID := postList.Order[index]
-		post := postList.Posts[postID]
+		postId := postList.Order[index]
+		post := postList.Posts[postId]
 		if post.RootId != "" {
 			continue // threads mode: skip replies from main timeline
 		}
-		filteredOrder = append(filteredOrder, postID)
+		filteredOrder = append(filteredOrder, postId)
 	}
 
 	if len(filteredOrder) != 1 {
@@ -511,13 +511,13 @@ func TestPostListThreadsUserFilterIncludesRepliesUnderOthers(t *testing.T) {
 
 	var filteredOrder []string
 	for index := len(postList.Order) - 1; index >= 0; index-- {
-		postID := postList.Order[index]
-		post := postList.Posts[postID]
+		postId := postList.Order[index]
+		post := postList.Posts[postId]
 		// With --threads active, user filter is deferred
 		if post.RootId != "" {
 			continue
 		}
-		filteredOrder = append(filteredOrder, postID)
+		filteredOrder = append(filteredOrder, postId)
 	}
 
 	// Root post should be in filteredOrder (not skipped despite being bob's)
