@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/spf13/cobra"
@@ -33,9 +34,18 @@ func init() {
 		Use:   "list <channel>",
 		Short: "List recent messages in a channel",
 		Args:  cobra.ExactArgs(1),
-		RunE:  postListRun,
+		PreRunE: func(command *cobra.Command, _ []string) error {
+			return validatePostListFlags(command)
+		},
+		RunE: postListRun,
 	}
 	listCommand.Flags().IntP("count", "n", 20, "Number of messages")
+	listCommand.Flags().String("since", "", "Show posts since time (RFC3339, date, or duration like 24h)")
+	listCommand.Flags().String("user", "", "Filter posts by username")
+	listCommand.Flags().Bool("full-id", false, "Show full 26-character post IDs")
+	listCommand.Flags().Bool("threads", false, "Inline thread replies under each root post")
+	listCommand.Flags().Bool("collapse-threads", false, "Show only root posts with reply counts")
+	listCommand.MarkFlagsMutuallyExclusive("threads", "collapse-threads")
 
 	threadCommand := &cobra.Command{
 		Use:   "thread <post-id>",
@@ -120,7 +130,17 @@ func init() {
 	rootCommand.AddCommand(postCommand)
 }
 
+type formatPostOptions struct {
+	fullID          bool
+	showReplyCount  bool
+	hideReplyPrefix bool
+}
+
 func formatPost(apiClient *model.Client4, ctx context.Context, post *model.Post, userCache map[string]string) string {
+	return formatPostWithOptions(apiClient, ctx, post, userCache, formatPostOptions{})
+}
+
+func formatPostWithOptions(apiClient *model.Client4, ctx context.Context, post *model.Post, userCache map[string]string, options formatPostOptions) string {
 	username := post.UserId
 	if userCache != nil {
 		if name, ok := userCache[post.UserId]; ok {
@@ -138,6 +158,10 @@ func formatPost(apiClient *model.Client4, ctx context.Context, post *model.Post,
 		message += fmt.Sprintf(" [%d file(s)]", len(post.FileIds))
 	}
 
+	if options.showReplyCount && post.ReplyCount > 0 {
+		message += fmt.Sprintf(" [%d replies]", post.ReplyCount)
+	}
+
 	if post.Metadata != nil && len(post.Metadata.Reactions) > 0 {
 		reactionCounts := make(map[string]int)
 		for _, reaction := range post.Metadata.Reactions {
@@ -151,11 +175,16 @@ func formatPost(apiClient *model.Client4, ctx context.Context, post *model.Post,
 	}
 
 	prefix := ""
-	if post.RootId != "" {
+	if post.RootId != "" && !options.hideReplyPrefix {
 		prefix = "  ↳ "
 	}
 
-	return fmt.Sprintf("%s%s  %s  %s  %s", prefix, post.Id[:8], timestamp, username, message)
+	postID := post.Id[:8]
+	if options.fullID {
+		postID = post.Id
+	}
+
+	return fmt.Sprintf("%s%s  %s  %s  %s", prefix, postID, timestamp, username, message)
 }
 
 func postCreateRun(command *cobra.Command, args []string) error {
@@ -220,6 +249,40 @@ func postCreateRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
+// validatePostListFlags checks for invalid flag combinations on `post list`.
+func validatePostListFlags(command *cobra.Command) error {
+	threads, _ := command.Flags().GetBool("threads")
+	if threads && printer.JSONOutput {
+		return fmt.Errorf("--threads is not supported with JSON output; use --collapse-threads or omit --threads")
+	}
+	sinceStr, _ := command.Flags().GetString("since")
+	if sinceStr != "" && command.Flags().Changed("count") {
+		return fmt.Errorf("--count and --since cannot be used together; --since returns all posts after the given time")
+	}
+	return nil
+}
+
+// parseSince parses a --since value into a unix timestamp in milliseconds.
+// Accepts RFC3339, date-only (YYYY-MM-DD), or Go duration strings (e.g. "24h", "30m").
+func parseSince(value string) (int64, error) {
+	// Try as a Go duration (relative time)
+	if duration, err := time.ParseDuration(value); err == nil {
+		return time.Now().Add(-duration).UnixMilli(), nil
+	}
+
+	// Try RFC3339
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t.UnixMilli(), nil
+	}
+
+	// Try date-only YYYY-MM-DD
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return t.UnixMilli(), nil
+	}
+
+	return 0, fmt.Errorf("cannot parse --since value %q: expected RFC3339, YYYY-MM-DD, or duration (e.g. 24h)", value)
+}
+
 func postListRun(command *cobra.Command, args []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
@@ -237,22 +300,108 @@ func postListRun(command *cobra.Command, args []string) error {
 	}
 
 	count, _ := command.Flags().GetInt("count")
-	postList, _, err := apiClient.GetPostsForChannel(ctx, channelId, 0, count, "", false, false)
-	if err != nil {
-		return fmt.Errorf("listing posts: %w", err)
+	sinceStr, _ := command.Flags().GetString("since")
+	userFilter, _ := command.Flags().GetString("user")
+	fullID, _ := command.Flags().GetBool("full-id")
+	threads, _ := command.Flags().GetBool("threads")
+	collapseThreads, _ := command.Flags().GetBool("collapse-threads")
+
+	var postList *model.PostList
+	if sinceStr != "" {
+		sinceMillis, err := parseSince(sinceStr)
+		if err != nil {
+			return err
+		}
+		postList, _, err = apiClient.GetPostsSince(ctx, channelId, sinceMillis, false)
+		if err != nil {
+			return fmt.Errorf("listing posts since %s: %w", sinceStr, err)
+		}
+	} else {
+		postList, _, err = apiClient.GetPostsForChannel(ctx, channelId, 0, count, "", false, false)
+		if err != nil {
+			return fmt.Errorf("listing posts: %w", err)
+		}
 	}
 
-	if printer.JSONOutput {
-		printPostListWithUsers(ctx, apiClient, postList)
-		return nil
-	}
-
+	// Resolve usernames for filtering and display
 	userIds := collectUserIdsFromPostList(postList)
 	users, _ := resolveUsersByIds(ctx, apiClient, userIds)
 	userCache := buildUserCache(users)
+
+	// Build ordered list of posts to display, applying filters.
+	// When --threads is set, skip reply posts from the main timeline to avoid
+	// printing them twice (once here and once during thread expansion).
+	var filteredOrder []string
 	for index := len(postList.Order) - 1; index >= 0; index-- {
-		post := postList.Posts[postList.Order[index]]
-		_, _ = fmt.Fprintln(printer.Stdout, formatPost(apiClient, ctx, post, userCache))
+		postID := postList.Order[index]
+		post := postList.Posts[postID]
+
+		if userFilter != "" {
+			postUsername := userCache[post.UserId]
+			if postUsername != userFilter {
+				continue
+			}
+		}
+
+		if (collapseThreads || threads) && post.RootId != "" {
+			continue
+		}
+
+		filteredOrder = append(filteredOrder, postID)
+	}
+
+	if printer.JSONOutput {
+		// Build a filtered post list for JSON output
+		filtered := &model.PostList{
+			Order: make([]string, len(filteredOrder)),
+			Posts: make(map[string]*model.Post, len(filteredOrder)),
+		}
+		// Reverse back to API order (newest first) for JSON
+		for index, postID := range filteredOrder {
+			filtered.Order[len(filteredOrder)-1-index] = postID
+			filtered.Posts[postID] = postList.Posts[postID]
+		}
+		printPostListWithUsers(ctx, apiClient, filtered)
+		return nil
+	}
+
+	options := formatPostOptions{
+		fullID:         fullID,
+		showReplyCount: collapseThreads,
+	}
+
+	for _, postID := range filteredOrder {
+		post := postList.Posts[postID]
+		_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, post, userCache, options))
+
+		// If --threads is set and this is a root post with replies, fetch and inline the thread
+		if threads && post.RootId == "" && post.ReplyCount > 0 {
+			threadList, _, err := apiClient.GetPostThread(ctx, post.Id, "", false)
+			if err != nil {
+				continue
+			}
+			// Collect thread user IDs and merge into cache
+			threadUserIds := collectUserIdsFromPostList(threadList)
+			threadUsers, _ := resolveUsersByIds(ctx, apiClient, threadUserIds)
+			for id, user := range threadUsers {
+				if _, ok := userCache[id]; !ok {
+					userCache[id] = user.Username
+				}
+			}
+			threadOptions := formatPostOptions{
+				fullID: fullID,
+			}
+			for threadIndex := len(threadList.Order) - 1; threadIndex >= 0; threadIndex-- {
+				threadPost := threadList.Posts[threadList.Order[threadIndex]]
+				if threadPost.Id == post.Id {
+					continue // skip the root post, already printed
+				}
+				if userFilter != "" && userCache[threadPost.UserId] != userFilter {
+					continue
+				}
+				_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, threadPost, userCache, threadOptions))
+			}
+		}
 	}
 	return nil
 }

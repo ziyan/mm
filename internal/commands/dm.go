@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
@@ -18,9 +19,9 @@ func init() {
 	}
 
 	sendCommand := &cobra.Command{
-		Use:   "send <username> <message>",
-		Short: "Send a direct message",
-		Args:  cobra.MinimumNArgs(2),
+		Use:   "send <username> [message]",
+		Short: "Send a direct message (reads from stdin if no message given)",
+		Args:  cobra.MinimumNArgs(1),
 		RunE:  dmSendRun,
 	}
 
@@ -79,7 +80,20 @@ func dmSendRun(command *cobra.Command, args []string) error {
 		return fmt.Errorf("creating DM channel: %w", err)
 	}
 
-	message := strings.Join(args[1:], " ")
+	var message string
+	if len(args) > 1 {
+		message = strings.Join(args[1:], " ")
+	} else {
+		data, err := os.ReadFile("/dev/stdin")
+		if err != nil {
+			return fmt.Errorf("no message provided and cannot read stdin: %w", err)
+		}
+		message = strings.TrimRight(string(data), "\n")
+		if message == "" {
+			return fmt.Errorf("no message provided")
+		}
+	}
+
 	post, _, err := apiClient.CreatePost(ctx, &model.Post{
 		ChannelId: channel.Id,
 		Message:   message,
