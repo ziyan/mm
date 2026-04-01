@@ -6,6 +6,21 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## Unreleased
 
+## [0.3.1] - 2026-04-01
+
+Corrective patch release: adds the changelog entry missing from 0.3.0.
+
+### Fixed
+
+- `post list --threads` no longer shows duplicate replies; reply posts already expanded under their root are skipped from the main timeline.
+- `post list --threads --user` now includes replies by the target user under other users' root posts.
+- `post list` rejects incompatible flag combinations at startup: `--threads` + `--collapse-threads` (mutually exclusive), `--threads` + `--json` (unsupported), and `--count` + `--since` (ambiguous).
+
+### Added
+
+- `dm send` reads message body from stdin when the positional `[message]` argument is omitted, enabling pipe workflows.
+- Comprehensive CLI-level tests for `post list` flag validation, thread reply deduplication, and `dm send` stdin acceptance.
+
 ## [0.2.0] - 2026-03-28
 
 ### Fixed
