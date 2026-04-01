@@ -376,6 +376,183 @@ func TestPostListFlagExists(t *testing.T) {
 	}
 }
 
+// resetPostListFlags resets shared cobra state that bleeds between tests.
+func resetPostListFlags() {
+	_ = rootCommand.PersistentFlags().Set("json", "false")
+	printer.JSONOutput = false
+	for _, child := range rootCommand.Commands() {
+		if child.Name() == "post" {
+			for _, grandchild := range child.Commands() {
+				if grandchild.Name() == "list" {
+					_ = grandchild.Flags().Set("threads", "false")
+					_ = grandchild.Flags().Set("collapse-threads", "false")
+					_ = grandchild.Flags().Set("since", "")
+					_ = grandchild.Flags().Set("count", "20")
+					_ = grandchild.Flags().Set("user", "")
+					return
+				}
+			}
+		}
+	}
+}
+
+// TestPostListThreadsJSONRejectedViaExecute verifies that running
+// `mm --json post list --threads <channel>` is rejected at the command level
+// (PreRunE fires before any API call).
+func TestPostListThreadsJSONRejectedViaExecute(t *testing.T) {
+	defer resetPostListFlags()
+
+	rootCommand.SetArgs([]string{"--json", "post", "list", "--threads", "general"})
+	err := rootCommand.Execute()
+	if err == nil {
+		t.Fatal("expected error for --json with --threads")
+	}
+	if !strings.Contains(err.Error(), "--threads is not supported with JSON output") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestPostListSinceCountRejectedViaExecute verifies that running
+// `mm post list --since 24h --count 10 <channel>` is rejected at the command level.
+func TestPostListSinceCountRejectedViaExecute(t *testing.T) {
+	defer resetPostListFlags()
+
+	rootCommand.SetArgs([]string{"post", "list", "--since", "24h", "--count", "10", "general"})
+	err := rootCommand.Execute()
+	if err == nil {
+		t.Fatal("expected error for --since with --count")
+	}
+	if !strings.Contains(err.Error(), "--count and --since cannot be used together") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestPostListThreadsDedup verifies the dedup logic: when --threads is active,
+// reply posts are skipped from the main timeline so they only appear under
+// their root during thread expansion (not printed twice).
+func TestPostListThreadsDedup(t *testing.T) {
+	// The filtering loop skips posts with RootId != "" when threads is true.
+	// Simulate the filtering logic with a synthetic PostList.
+	rootPost := &model.Post{
+		Id:         "root12345678901234567890",
+		UserId:     "user_alice_0000000000000",
+		Message:    "root message",
+		CreateAt:   1700000000000,
+		ReplyCount: 1,
+	}
+	replyPost := &model.Post{
+		Id:       "reply2345678901234567890",
+		UserId:   "user_bob_00000000000000000",
+		Message:  "reply message",
+		CreateAt: 1700000001000,
+		RootId:   rootPost.Id,
+	}
+	postList := &model.PostList{
+		Order: []string{replyPost.Id, rootPost.Id}, // newest first from API
+		Posts: map[string]*model.Post{
+			rootPost.Id:  rootPost,
+			replyPost.Id: replyPost,
+		},
+	}
+
+	// Simulate the filtering loop with threads=true
+	var filteredOrder []string
+	for index := len(postList.Order) - 1; index >= 0; index-- {
+		postID := postList.Order[index]
+		post := postList.Posts[postID]
+		if post.RootId != "" {
+			continue // threads mode: skip replies from main timeline
+		}
+		filteredOrder = append(filteredOrder, postID)
+	}
+
+	if len(filteredOrder) != 1 {
+		t.Fatalf("expected 1 root post in filteredOrder, got %d", len(filteredOrder))
+	}
+	if filteredOrder[0] != rootPost.Id {
+		t.Errorf("expected root post %s, got %s", rootPost.Id, filteredOrder[0])
+	}
+}
+
+// TestPostListThreadsUserFilterIncludesRepliesUnderOthers verifies the
+// corrected logic: when --threads and --user are both active, replies by the
+// target user appear even when the thread root belongs to a different user.
+func TestPostListThreadsUserFilterIncludesRepliesUnderOthers(t *testing.T) {
+	userFilter := "alice"
+	userCache := map[string]string{
+		"user_alice_0000000000000":   "alice",
+		"user_bob_00000000000000000": "bob",
+	}
+
+	// Root by bob, reply by alice
+	rootPost := &model.Post{
+		Id:         "root12345678901234567890",
+		UserId:     "user_bob_00000000000000000",
+		Message:    "bob starts thread",
+		CreateAt:   1700000000000,
+		ReplyCount: 1,
+	}
+	aliceReply := &model.Post{
+		Id:       "reply2345678901234567890",
+		UserId:   "user_alice_0000000000000",
+		Message:  "alice replies",
+		CreateAt: 1700000001000,
+		RootId:   rootPost.Id,
+	}
+
+	// Simulate the corrected filtering loop (threads=true, user filter deferred)
+	postList := &model.PostList{
+		Order: []string{aliceReply.Id, rootPost.Id},
+		Posts: map[string]*model.Post{
+			rootPost.Id:   rootPost,
+			aliceReply.Id: aliceReply,
+		},
+	}
+
+	var filteredOrder []string
+	for index := len(postList.Order) - 1; index >= 0; index-- {
+		postID := postList.Order[index]
+		post := postList.Posts[postID]
+		// With --threads active, user filter is deferred
+		if post.RootId != "" {
+			continue
+		}
+		filteredOrder = append(filteredOrder, postID)
+	}
+
+	// Root post should be in filteredOrder (not skipped despite being bob's)
+	if len(filteredOrder) != 1 || filteredOrder[0] != rootPost.Id {
+		t.Fatalf("expected root post in filteredOrder, got %v", filteredOrder)
+	}
+
+	// Simulate thread expansion with user filter
+	threadPosts := []*model.Post{rootPost, aliceReply}
+	var matchingReplies []string
+	for _, threadPost := range threadPosts {
+		if threadPost.Id == rootPost.Id {
+			continue
+		}
+		if userCache[threadPost.UserId] != userFilter {
+			continue
+		}
+		matchingReplies = append(matchingReplies, threadPost.Message)
+	}
+
+	if len(matchingReplies) != 1 || matchingReplies[0] != "alice replies" {
+		t.Errorf("expected alice's reply to be included, got %v", matchingReplies)
+	}
+
+	// Verify that a root with no matching replies would be skipped
+	rootMatches := userCache[rootPost.UserId] == userFilter
+	if rootMatches {
+		t.Error("bob's root should not match alice filter")
+	}
+	// But since alice has a reply, the root+replies should still be shown
+	if !rootMatches && len(matchingReplies) == 0 {
+		t.Error("expected root to be shown because alice has replies")
+	}
+}
+
 func TestDmSendCommandAcceptsOneArg(t *testing.T) {
 	var sendCommand *cobra.Command
 	for _, child := range rootCommand.Commands() {

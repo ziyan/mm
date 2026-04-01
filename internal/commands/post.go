@@ -336,7 +336,9 @@ func postListRun(command *cobra.Command, args []string) error {
 		postID := postList.Order[index]
 		post := postList.Posts[postID]
 
-		if userFilter != "" {
+		// When --threads is active, defer user filtering to thread expansion
+		// so that replies by the target user under other users' roots are included.
+		if userFilter != "" && !threads {
 			postUsername := userCache[post.UserId]
 			if postUsername != userFilter {
 				continue
@@ -372,12 +374,14 @@ func postListRun(command *cobra.Command, args []string) error {
 
 	for _, postID := range filteredOrder {
 		post := postList.Posts[postID]
-		_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, post, userCache, options))
 
 		// If --threads is set and this is a root post with replies, fetch and inline the thread
 		if threads && post.RootId == "" && post.ReplyCount > 0 {
 			threadList, _, err := apiClient.GetPostThread(ctx, post.Id, "", false)
 			if err != nil {
+				if userFilter == "" || userCache[post.UserId] == userFilter {
+					_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, post, userCache, options))
+				}
 				continue
 			}
 			// Collect thread user IDs and merge into cache
@@ -388,20 +392,39 @@ func postListRun(command *cobra.Command, args []string) error {
 					userCache[id] = user.Username
 				}
 			}
+			// Collect matching reply lines
 			threadOptions := formatPostOptions{
 				fullID: fullID,
 			}
+			var replyLines []string
 			for threadIndex := len(threadList.Order) - 1; threadIndex >= 0; threadIndex-- {
 				threadPost := threadList.Posts[threadList.Order[threadIndex]]
 				if threadPost.Id == post.Id {
-					continue // skip the root post, already printed
+					continue // skip the root post
 				}
 				if userFilter != "" && userCache[threadPost.UserId] != userFilter {
 					continue
 				}
-				_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, threadPost, userCache, threadOptions))
+				replyLines = append(replyLines, formatPostWithOptions(apiClient, ctx, threadPost, userCache, threadOptions))
 			}
+			// When filtering by user, skip this root entirely if neither the root
+			// nor any reply matches.
+			rootMatches := userFilter == "" || userCache[post.UserId] == userFilter
+			if userFilter != "" && !rootMatches && len(replyLines) == 0 {
+				continue
+			}
+			_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, post, userCache, options))
+			for _, line := range replyLines {
+				_, _ = fmt.Fprintln(printer.Stdout, line)
+			}
+			continue
 		}
+
+		// Root with no replies or non-thread mode: apply user filter directly
+		if userFilter != "" && threads && userCache[post.UserId] != userFilter {
+			continue
+		}
+		_, _ = fmt.Fprintln(printer.Stdout, formatPostWithOptions(apiClient, ctx, post, userCache, options))
 	}
 	return nil
 }

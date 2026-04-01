@@ -151,6 +151,13 @@ mm post create <channel> <msg> -f file.png     # post with attachment
 mm post create <channel> <msg> --root-id ID    # reply in thread
 mm post list <channel>                         # list recent messages
 mm post list <channel> -n 50                   # last 50 messages
+mm post list <channel> --since 24h             # posts in the last 24 hours
+mm post list <channel> --since 2026-03-29      # posts since a date
+mm post list <channel> --user alice            # only posts by alice
+mm post list <channel> --threads               # inline thread replies
+mm post list <channel> --threads --user alice  # alice's posts and replies
+mm post list <channel> --collapse-threads      # roots only with reply counts
+mm post list <channel> --full-id               # show full 26-char post IDs
 mm post thread <post-id>                       # view a thread
 mm post reply <post-id> <message>              # reply to a thread
 mm post edit <post-id> <new-message>           # edit a post
@@ -170,6 +177,7 @@ mm post remind <post-id> 1h                    # set reminder
 
 ```bash
 mm dm send <username> <message>                 # send a DM
+echo "hello" | mm dm send <username>           # send from stdin
 mm dm read <username>                           # read DM history
 mm dm read <username> -n 50                     # last 50 messages
 mm dm list                                      # list DM conversations
