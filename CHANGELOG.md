@@ -6,6 +6,11 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## Unreleased
 
+### Added
+
+- Per-profile read-only mode. Use `mm auth login --readonly` to create a read-only profile, or `mm auth set-readonly <profile> on|off` to toggle. When enabled, mm refuses any HTTP request that would mutate state on the Mattermost server (only GET/HEAD/OPTIONS and POST to `/search` endpoints are allowed).
+- `mm auth list` and `mm auth status` now show the read-only flag.
+
 ## [0.2.0] - 2026-03-28
 
 ### Fixed

@@ -6,7 +6,7 @@ A full-featured command-line client for [Mattermost](https://mattermost.com).
 
 ## Features
 
-- **Multi-server profiles** with token and password authentication
+- **Multi-server profiles** with token and password authentication, including a per-profile read-only mode that blocks all mutations
 - **Real-time notifications** via WebSocket with event and channel filtering
 - **Full post lifecycle**: create, edit, delete, pin, react, search, threads, reminders
 - **Channel management**: join, leave, create, archive, read, favorite, notify settings
@@ -100,10 +100,12 @@ mm notify --json                   # JSON output for scripting
 ```bash
 mm auth login --url URL --token TOKEN   # login with token
 mm auth login --url URL -u USER -p PASS # login with password
+mm auth login --url URL ... --readonly  # mark new profile as read-only
 mm auth status                          # show current profile
 mm auth list                            # list all profiles
 mm auth switch <profile>                # switch active profile
 mm auth remove <profile>                # remove a profile
+mm auth set-readonly <profile> on|off   # toggle read-only mode on a profile
 mm auth sessions                        # list active sessions
 mm auth revoke-session <session-id>     # revoke a session
 mm auth revoke-all                      # revoke all sessions

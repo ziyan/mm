@@ -14,6 +14,7 @@ type ServerProfile struct {
 	Username string `json:"username,omitempty"`
 	TeamID   string `json:"team_id,omitempty"`
 	TeamName string `json:"team_name,omitempty"`
+	Readonly bool   `json:"readonly,omitempty"`
 }
 
 type Config struct {
