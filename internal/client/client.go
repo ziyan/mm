@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
@@ -24,6 +25,16 @@ func New() (*model.Client4, *config.ServerProfile, error) {
 	serverURL = strings.TrimRight(serverURL, "/")
 	apiClient := model.NewAPIv4Client(serverURL)
 	apiClient.SetToken(server.Token)
+	if server.Readonly {
+		base := apiClient.HTTPClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		apiClient.HTTPClient.Transport = &readonlyTransport{
+			profile: server.Name,
+			base:    base,
+		}
+	}
 	return apiClient, server, nil
 }
 

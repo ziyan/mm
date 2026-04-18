@@ -27,6 +27,7 @@ func init() {
 	loginCommand.Flags().StringP("token", "t", "", "Personal access token")
 	loginCommand.Flags().StringP("user", "u", "", "Username or email (for password login)")
 	loginCommand.Flags().StringP("password", "p", "", "Password (for password login)")
+	loginCommand.Flags().Bool("readonly", false, "Mark profile as read-only (block all mutating requests)")
 	_ = loginCommand.MarkFlagRequired("url")
 
 	statusCommand := &cobra.Command{
@@ -55,7 +56,16 @@ func init() {
 		RunE:  authRemoveRun,
 	}
 
-	authCommand.AddCommand(loginCommand, statusCommand, listCommand, switchCommand, removeCommand)
+	setReadonlyCommand := &cobra.Command{
+		Use:   "set-readonly <profile> <on|off>",
+		Short: "Toggle the read-only flag on a profile",
+		Long: "Toggle the read-only flag on a profile. When read-only is on, mm refuses any " +
+			"request that would mutate state on the Mattermost server for that profile.",
+		Args: cobra.ExactArgs(2),
+		RunE: authSetReadonlyRun,
+	}
+
+	authCommand.AddCommand(loginCommand, statusCommand, listCommand, switchCommand, removeCommand, setReadonlyCommand)
 	rootCommand.AddCommand(authCommand)
 }
 
@@ -65,6 +75,7 @@ func authLoginRun(command *cobra.Command, args []string) error {
 	token, _ := command.Flags().GetString("token")
 	username, _ := command.Flags().GetString("user")
 	password, _ := command.Flags().GetString("password")
+	readonly, _ := command.Flags().GetBool("readonly")
 
 	serverURL = strings.TrimRight(serverURL, "/")
 	if !strings.HasPrefix(serverURL, "http") {
@@ -109,6 +120,7 @@ func authLoginRun(command *cobra.Command, args []string) error {
 		URL:      serverURL,
 		Token:    token,
 		Username: currentUser.Username,
+		Readonly: readonly,
 	})
 	configuration.ActiveProfile = profileName
 
@@ -116,7 +128,11 @@ func authLoginRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	printer.PrintSuccess("Logged in to %s as %s (profile: %s)", serverURL, currentUser.Username, profileName)
+	mode := ""
+	if readonly {
+		mode = " [readonly]"
+	}
+	printer.PrintSuccess("Logged in to %s as %s (profile: %s)%s", serverURL, currentUser.Username, profileName, mode)
 	return nil
 }
 
@@ -141,7 +157,15 @@ func authStatusRun(command *cobra.Command, args []string) error {
 	if server.TeamName != "" {
 		printer.PrintInfo("Team:     %s", server.TeamName)
 	}
+	printer.PrintInfo("Readonly: %s", boolText(server.Readonly))
 	return nil
+}
+
+func boolText(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
 }
 
 func authListRun(command *cobra.Command, args []string) error {
@@ -166,9 +190,13 @@ func authListRun(command *cobra.Command, args []string) error {
 		if profile.Name == configuration.ActiveProfile {
 			active = "*"
 		}
-		rows = append(rows, []string{active, profile.Name, profile.URL, profile.Username})
+		readonly := ""
+		if profile.Readonly {
+			readonly = "yes"
+		}
+		rows = append(rows, []string{active, profile.Name, profile.URL, profile.Username, readonly})
 	}
-	printer.PrintTable([]string{"", "NAME", "URL", "USER"}, rows)
+	printer.PrintTable([]string{"", "NAME", "URL", "USER", "READONLY"}, rows)
 	return nil
 }
 
@@ -211,4 +239,43 @@ func authRemoveRun(command *cobra.Command, args []string) error {
 	}
 	printer.PrintSuccess("Removed profile %s", profileName)
 	return nil
+}
+
+func authSetReadonlyRun(command *cobra.Command, args []string) error {
+	profileName := args[0]
+	value, err := parseOnOff(args[1])
+	if err != nil {
+		return err
+	}
+
+	configuration, err := config.Load()
+	if err != nil {
+		return err
+	}
+	profile, ok := configuration.Profiles[profileName]
+	if !ok {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	profile.Readonly = value
+	configuration.Profiles[profileName] = profile
+	if err := configuration.Save(); err != nil {
+		return err
+	}
+
+	if value {
+		printer.PrintSuccess("Profile %s is now read-only", profileName)
+	} else {
+		printer.PrintSuccess("Profile %s is now writable", profileName)
+	}
+	return nil
+}
+
+func parseOnOff(input string) (bool, error) {
+	switch strings.ToLower(input) {
+	case "on", "true", "yes", "1", "enable", "enabled":
+		return true, nil
+	case "off", "false", "no", "0", "disable", "disabled":
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid value %q: expected on or off", input)
 }

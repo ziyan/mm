@@ -2,7 +2,55 @@ package client
 
 import (
 	"testing"
+
+	"github.com/ziyan/mm/internal/config"
 )
+
+func TestNewInstallsReadonlyTransport(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", directory)
+
+	configuration := &config.Config{Profiles: map[string]config.ServerProfile{}}
+	configuration.SetProfile("ro", config.ServerProfile{
+		URL:      "https://mm.example.com",
+		Token:    "tok",
+		Readonly: true,
+	})
+	configuration.SetProfile("rw", config.ServerProfile{
+		URL:   "https://mm.example.com",
+		Token: "tok",
+	})
+
+	configuration.ActiveProfile = "ro"
+	if err := configuration.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	apiClient, server, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if !server.Readonly {
+		t.Fatalf("server.Readonly = false, want true")
+	}
+	if _, ok := apiClient.HTTPClient.Transport.(*readonlyTransport); !ok {
+		t.Fatalf("HTTPClient.Transport = %T, want *readonlyTransport", apiClient.HTTPClient.Transport)
+	}
+
+	configuration.ActiveProfile = "rw"
+	if err := configuration.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	apiClient, server, err = New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if server.Readonly {
+		t.Fatalf("server.Readonly = true, want false")
+	}
+	if _, ok := apiClient.HTTPClient.Transport.(*readonlyTransport); ok {
+		t.Fatalf("HTTPClient.Transport should not be *readonlyTransport for writable profile")
+	}
+}
 
 func TestWebSocketUrl(t *testing.T) {
 	tests := []struct {
