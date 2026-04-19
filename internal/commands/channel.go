@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/spf13/cobra"
@@ -90,12 +91,45 @@ func resolveChannelId(ctx context.Context, apiClient *model.Client4, teamId, cha
 		}
 	}
 
-	// Try as channel name
+	// Try as channel slug (Name field)
 	channel, _, err := apiClient.GetChannelByName(ctx, channelNameOrId, teamId, "")
-	if err != nil {
-		return "", fmt.Errorf("channel %q not found: %w", channelNameOrId, err)
+	if err == nil {
+		return channel.Id, nil
 	}
-	return channel.Id, nil
+
+	// Try as display name via search
+	return resolveChannelIdByDisplayName(ctx, apiClient, teamId, channelNameOrId)
+}
+
+func resolveChannelIdByDisplayName(ctx context.Context, apiClient *model.Client4, teamId, displayName string) (string, error) {
+	// Enumerate the user's accessible channels and match by display name.
+	// This avoids depending on Mattermost search tokenization, which fails
+	// for display names containing punctuation or hyphens.
+	currentUser, _, err := apiClient.GetMe(ctx, "")
+	if err != nil {
+		return "", fmt.Errorf("channel %q not found: %w", displayName, err)
+	}
+
+	channels, _, err := apiClient.GetChannelsForTeamForUser(ctx, teamId, currentUser.Id, false, "")
+	if err != nil {
+		return "", fmt.Errorf("channel %q not found: %w", displayName, err)
+	}
+
+	normalized := normalizeDisplayName(displayName)
+	for _, channel := range channels {
+		if strings.EqualFold(channel.DisplayName, displayName) {
+			return channel.Id, nil
+		}
+		if normalizeDisplayName(channel.DisplayName) == normalized {
+			return channel.Id, nil
+		}
+	}
+	return "", fmt.Errorf("channel %q not found", displayName)
+}
+
+// normalizeDisplayName collapses whitespace and lowercases for fuzzy matching.
+func normalizeDisplayName(name string) string {
+	return strings.Join(strings.Fields(strings.ToLower(name)), " ")
 }
 
 func channelListRun(command *cobra.Command, args []string) error {
@@ -262,7 +296,12 @@ func channelInfoRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channel, _, err := apiClient.GetChannelByName(ctx, args[0], teamId, "")
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	if err != nil {
+		return err
+	}
+
+	channel, _, err := apiClient.GetChannel(ctx, channelId)
 	if err != nil {
 		return fmt.Errorf("channel not found: %w", err)
 	}
