@@ -4,6 +4,12 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.5.0] - 2026-05-26
+
+### Changed
+
+- All public error messages now start with the originating package name (e.g. `commands: listing bots: …`) to match the Mujin error-prefix convention; identifiers using `args`, `serverURL`, `postJSON`, `reactionJSON`, `unreadJSON`, `WebSocketUrl` are renamed to the Mujin acronym-casing rules (`arguments`, `serverUrl`, `postJson`, …, `WebSocketURL`). User-facing CLI output and command names are unchanged. (#13)
+
 ## [0.4.0] - 2026-05-26
 
 ### Added
