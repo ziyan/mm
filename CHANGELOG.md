@@ -4,18 +4,24 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
-## Unreleased
+## [0.4.0] - 2026-05-26
 
 ### Added
 
-- Per-profile read-only mode. Use `mm auth login --readonly` to create a read-only profile, or `mm auth set-readonly <profile> on|off` to toggle. When enabled, mm refuses any HTTP request that would mutate state on the Mattermost server (only GET/HEAD/OPTIONS and POST to `/search` endpoints are allowed).
-- `mm auth list` and `mm auth status` now show the read-only flag.
+- Per-profile read-only mode. Use `mm auth login --readonly` to create a read-only profile, or `mm auth set-readonly <profile> on|off` to toggle. When enabled, mm refuses any HTTP request that would mutate state on the Mattermost server (only GET/HEAD/OPTIONS and POST to `/search` endpoints are allowed). (#8)
+- `mm auth list` and `mm auth status` now show the read-only flag. (#8)
+
+### Changed
+
+- `channel info` and other channel-arg commands now resolve channels by display name (in addition to the 26-char ID and slug), including names with hyphens or spaces that Mattermost search tokenization can't handle. (#9)
+- Release automation: a new auto-release bot tags `X.Y.Z` and writes `CHANGELOG.md` on every push to `main`, sourcing entries from each merged PR's `## Changelog` block. A `Changelog Guard` workflow rejects PRs whose description's changelog block is still the template placeholder; bypass with the `skip-changelog` label. Major releases run via the `Major Release` workflow with a `MAJOR` confirmation input. (#12)
 
 ### Fixed
 
-- `notify --channel <name>` no longer silently drops the filter when the active profile has no team set or when channel resolution fails; the command now surfaces the resolution error and exits. DM channel IDs (26-char) resolve without needing a team.
-- `dm group <username> <message>` now errors clearly when fewer than 2 other usernames are given, instead of letting the server reject the request with a generic message. Mattermost requires at least 3 participants (including self) for a group channel.
-- `draft list` and `scheduled list` now show the DM partner's username for direct-message rows instead of an 8-char channel ID prefix.
+- `slash exec <dm-channel-id> "/<command>"` no longer fails with "Unable to find the existing team"; the team ID from the active profile is now passed to the server's `/commands/execute` endpoint, which it requires for DM/GM channels. (#10)
+- `notify --channel <name>` no longer silently drops the filter when the active profile has no team set or when channel resolution fails; surfaces the resolution error instead. DM channel IDs (26-char) resolve without needing a team. (#11)
+- `dm group <username> <message>` now rejects single-user lists client-side with a hint to use `mm dm send`; trims empty comma entries. (#11)
+- `draft list` and `scheduled list` show the DM partner's username for direct-message rows via a new `channelDisplayLabel` helper, instead of an 8-char channel ID prefix. (#11)
 
 ## [0.3.1] - 2026-04-01
 
