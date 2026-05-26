@@ -49,11 +49,12 @@ func notifyRun(command *cobra.Command, args []string) error {
 	channelFilter, _ := command.Flags().GetString("channel")
 
 	var channelFilterId string
-	if channelFilter != "" && server.TeamID != "" {
+	if channelFilter != "" {
 		channelId, err := resolveChannelId(ctx, apiClient, server.TeamID, channelFilter)
-		if err == nil {
-			channelFilterId = channelId
+		if err != nil {
+			return fmt.Errorf("resolving --channel filter: %w", err)
 		}
+		channelFilterId = channelId
 	}
 
 	eventFilterSet := make(map[string]bool)

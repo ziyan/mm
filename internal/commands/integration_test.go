@@ -473,3 +473,134 @@ func TestIntegrationChannelUnread(t *testing.T) {
 		t.Fatalf("channel unread failed: %v", err)
 	}
 }
+
+// notify opens a websocket and blocks. We can only test the pre-loop error
+// path: an unresolvable --channel filter must surface as an error instead
+// of being silently dropped.
+func TestIntegrationNotifyChannelFilterUnknown(t *testing.T) {
+	skipIntegration(t)
+	_, err := runCommand("notify", "--channel", "no-such-channel-xyz")
+	if err == nil {
+		t.Fatal("expected notify --channel with unknown name to error, got nil")
+	}
+	if !strings.Contains(err.Error(), "resolving --channel filter") {
+		t.Errorf("expected 'resolving --channel filter' in error, got: %v", err)
+	}
+}
+
+// dm group requires at least 2 other users (server enforces
+// ChannelGroupMinUsers=3 including self). We catch the single-user case
+// client-side with a clearer message.
+func TestIntegrationDMGroupSingleUser(t *testing.T) {
+	skipIntegration(t)
+	_, err := runCommand("dm", "group", "testuser2", "hello")
+	if err == nil {
+		t.Fatal("expected dm group with single user to error, got nil")
+	}
+	if !strings.Contains(err.Error(), "at least 2 other users") {
+		t.Errorf("expected 'at least 2 other users' in error, got: %v", err)
+	}
+}
+
+// resolveDMChannelId seeds a DM with testuser2 and returns its channel ID,
+// fatally failing the test if the channel can't be located.
+func resolveDMChannelId(t *testing.T) string {
+	t.Helper()
+	if _, err := runCommand("dm", "send", "testuser2", "seed DM for display test"); err != nil {
+		t.Fatalf("seeding DM failed: %v", err)
+	}
+	result, output, err := runCommandJSON("dm", "list")
+	if err != nil {
+		t.Fatalf("dm list failed: %v\n%s", err, output)
+	}
+	channels, ok := result.([]interface{})
+	if !ok || len(channels) == 0 {
+		t.Fatalf("expected dm list to return at least one channel, got: %v", result)
+	}
+	for _, raw := range channels {
+		channel, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if channel["type"] == "D" {
+			channelId, _ := channel["id"].(string)
+			if channelId != "" {
+				return channelId
+			}
+		}
+	}
+	t.Fatalf("could not locate a direct channel in dm list output: %s", output)
+	return ""
+}
+
+// draft list renders DM channels via channelDisplayLabel, which falls back
+// to the partner username when the server-returned DisplayName is empty
+// (DM channels). Without the helper the row would show only the 8-char
+// channel ID prefix.
+func TestIntegrationDraftListShowsDMPartner(t *testing.T) {
+	skipIntegration(t)
+	dmChannelId := resolveDMChannelId(t)
+
+	if _, err := runCommand("draft", "create", dmChannelId, "draft for DM display test"); err != nil {
+		t.Fatalf("draft create failed: %v", err)
+	}
+	defer func() { _, _ = runCommand("draft", "delete", dmChannelId) }()
+
+	output, err := runCommand("draft", "list")
+	if err != nil {
+		t.Fatalf("draft list failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "testuser2") {
+		t.Errorf("expected DM partner 'testuser2' in draft list output (channelDisplayLabel fallback), got: %s", output)
+	}
+	if strings.Contains(output, dmChannelId[:8]) {
+		t.Errorf("draft list still shows raw channel ID prefix %q — channelDisplayLabel did not engage; output: %s", dmChannelId[:8], output)
+	}
+}
+
+// scheduled list renders DM channels through the same channelDisplayLabel
+// helper as draft list. Schedule a post in a DM and verify the partner
+// username shows up instead of the channel ID prefix.
+func TestIntegrationScheduledListShowsDMPartner(t *testing.T) {
+	skipIntegration(t)
+	dmChannelId := resolveDMChannelId(t)
+
+	output, err := runCommand("scheduled", "create", dmChannelId, "24h", "scheduled DM display test")
+	if err != nil {
+		if strings.Contains(err.Error(), "license") {
+			t.Skipf("scheduled posts require enterprise license: %v", err)
+		}
+		t.Fatalf("scheduled create failed: %v\n%s", err, output)
+	}
+
+	result, output, err := runCommandJSON("scheduled", "list")
+	if err != nil {
+		t.Fatalf("scheduled list --json failed: %v\n%s", err, output)
+	}
+	defer func() {
+		// Best-effort cleanup: walk the JSON for our scheduled post id.
+		postsMap, _ := result.(map[string]interface{})
+		for _, posts := range postsMap {
+			rows, _ := posts.([]interface{})
+			for _, raw := range rows {
+				post, _ := raw.(map[string]interface{})
+				if post["channel_id"] == dmChannelId {
+					if id, _ := post["id"].(string); id != "" {
+						_, _ = runCommand("scheduled", "delete", id)
+					}
+				}
+			}
+		}
+	}()
+
+	output, err = runCommand("scheduled", "list")
+	if err != nil {
+		t.Fatalf("scheduled list failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "testuser2") {
+		t.Errorf("expected DM partner 'testuser2' in scheduled list output (channelDisplayLabel fallback), got: %s", output)
+	}
+	if strings.Contains(output, dmChannelId[:8]) {
+		t.Errorf("scheduled list still shows raw channel ID prefix %q — channelDisplayLabel did not engage; output: %s", dmChannelId[:8], output)
+	}
+}

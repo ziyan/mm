@@ -11,6 +11,12 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 - Per-profile read-only mode. Use `mm auth login --readonly` to create a read-only profile, or `mm auth set-readonly <profile> on|off` to toggle. When enabled, mm refuses any HTTP request that would mutate state on the Mattermost server (only GET/HEAD/OPTIONS and POST to `/search` endpoints are allowed).
 - `mm auth list` and `mm auth status` now show the read-only flag.
 
+### Fixed
+
+- `notify --channel <name>` no longer silently drops the filter when the active profile has no team set or when channel resolution fails; the command now surfaces the resolution error and exits. DM channel IDs (26-char) resolve without needing a team.
+- `dm group <username> <message>` now errors clearly when fewer than 2 other usernames are given, instead of letting the server reject the request with a generic message. Mattermost requires at least 3 participants (including self) for a group channel.
+- `draft list` and `scheduled list` now show the DM partner's username for direct-message rows instead of an 8-char channel ID prefix.
+
 ## [0.3.1] - 2026-04-01
 
 Corrective patch release: adds the changelog entry missing from 0.3.0.

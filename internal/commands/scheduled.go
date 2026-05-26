@@ -75,12 +75,17 @@ func scheduledListRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
+	currentUser, _, err := apiClient.GetMe(ctx, "")
+	if err != nil {
+		return err
+	}
+
 	var rows [][]string
 	for _, post := range allPosts {
 		channelName := post.ChannelId[:8]
 		channel, _, err := apiClient.GetChannel(ctx, post.ChannelId)
 		if err == nil {
-			channelName = channel.DisplayName
+			channelName = channelDisplayLabel(ctx, apiClient, currentUser.Id, channel)
 		}
 		rows = append(rows, []string{
 			post.Id,

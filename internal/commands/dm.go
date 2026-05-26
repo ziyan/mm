@@ -249,10 +249,19 @@ func dmGroupRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	usernames := strings.Split(args[0], ",")
+	usernames := make([]string, 0)
+	for _, raw := range strings.Split(args[0], ",") {
+		if trimmed := strings.TrimSpace(raw); trimmed != "" {
+			usernames = append(usernames, trimmed)
+		}
+	}
+	if len(usernames) < 2 {
+		return fmt.Errorf("group messages require at least 2 other users (got %d); use 'mm dm send' for a single recipient", len(usernames))
+	}
+
 	userIds := []string{currentUser.Id}
 	for _, username := range usernames {
-		userId, err := resolveUserId(ctx, apiClient, strings.TrimSpace(username))
+		userId, err := resolveUserId(ctx, apiClient, username)
 		if err != nil {
 			return err
 		}
