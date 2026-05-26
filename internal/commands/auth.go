@@ -69,27 +69,27 @@ func init() {
 	rootCommand.AddCommand(authCommand)
 }
 
-func authLoginRun(command *cobra.Command, args []string) error {
-	serverURL, _ := command.Flags().GetString("url")
+func authLoginRun(command *cobra.Command, arguments []string) error {
+	serverUrl, _ := command.Flags().GetString("url")
 	profileName, _ := command.Flags().GetString("name")
 	token, _ := command.Flags().GetString("token")
 	username, _ := command.Flags().GetString("user")
 	password, _ := command.Flags().GetString("password")
 	readonly, _ := command.Flags().GetBool("readonly")
 
-	serverURL = strings.TrimRight(serverURL, "/")
-	if !strings.HasPrefix(serverURL, "http") {
-		serverURL = "https://" + serverURL
+	serverUrl = strings.TrimRight(serverUrl, "/")
+	if !strings.HasPrefix(serverUrl, "http") {
+		serverUrl = "https://" + serverUrl
 	}
 
 	if profileName == "" {
-		profileName = strings.TrimPrefix(serverURL, "https://")
+		profileName = strings.TrimPrefix(serverUrl, "https://")
 		profileName = strings.TrimPrefix(profileName, "http://")
 		profileName = strings.Split(profileName, "/")[0]
 		profileName = strings.Split(profileName, ":")[0]
 	}
 
-	apiClient := model.NewAPIv4Client(serverURL)
+	apiClient := model.NewAPIv4Client(serverUrl)
 	ctx := context.Background()
 
 	if token != "" {
@@ -97,18 +97,18 @@ func authLoginRun(command *cobra.Command, args []string) error {
 	} else if username != "" && password != "" {
 		user, _, err := apiClient.Login(ctx, username, password)
 		if err != nil {
-			return fmt.Errorf("login failed: %w", err)
+			return fmt.Errorf("commands: login failed: %w", err)
 		}
 		token = apiClient.AuthToken
 		printer.PrintInfo("Logged in as %s (%s)", user.Username, user.Email)
 	} else {
-		return fmt.Errorf("provide --token or --user and --password")
+		return fmt.Errorf("commands: provide --token or --user and --password")
 	}
 
 	// Verify token
 	currentUser, _, err := apiClient.GetMe(ctx, "")
 	if err != nil {
-		return fmt.Errorf("token verification failed: %w", err)
+		return fmt.Errorf("commands: token verification failed: %w", err)
 	}
 
 	configuration, err := config.Load()
@@ -117,7 +117,7 @@ func authLoginRun(command *cobra.Command, args []string) error {
 	}
 
 	configuration.SetProfile(profileName, config.ServerProfile{
-		URL:      serverURL,
+		URL:      serverUrl,
 		Token:    token,
 		Username: currentUser.Username,
 		Readonly: readonly,
@@ -132,11 +132,11 @@ func authLoginRun(command *cobra.Command, args []string) error {
 	if readonly {
 		mode = " [readonly]"
 	}
-	printer.PrintSuccess("Logged in to %s as %s (profile: %s)%s", serverURL, currentUser.Username, profileName, mode)
+	printer.PrintSuccess("Logged in to %s as %s (profile: %s)%s", serverUrl, currentUser.Username, profileName, mode)
 	return nil
 }
 
-func authStatusRun(command *cobra.Command, args []string) error {
+func authStatusRun(command *cobra.Command, arguments []string) error {
 	configuration, err := config.Load()
 	if err != nil {
 		return err
@@ -168,7 +168,7 @@ func boolText(value bool) string {
 	return "no"
 }
 
-func authListRun(command *cobra.Command, args []string) error {
+func authListRun(command *cobra.Command, arguments []string) error {
 	configuration, err := config.Load()
 	if err != nil {
 		return err
@@ -200,14 +200,14 @@ func authListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func authSwitchRun(command *cobra.Command, args []string) error {
+func authSwitchRun(command *cobra.Command, arguments []string) error {
 	configuration, err := config.Load()
 	if err != nil {
 		return err
 	}
-	profileName := args[0]
+	profileName := arguments[0]
 	if _, ok := configuration.Profiles[profileName]; !ok {
-		return fmt.Errorf("profile %q not found", profileName)
+		return fmt.Errorf("commands: profile %q not found", profileName)
 	}
 	configuration.ActiveProfile = profileName
 	if err := configuration.Save(); err != nil {
@@ -217,14 +217,14 @@ func authSwitchRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func authRemoveRun(command *cobra.Command, args []string) error {
+func authRemoveRun(command *cobra.Command, arguments []string) error {
 	configuration, err := config.Load()
 	if err != nil {
 		return err
 	}
-	profileName := args[0]
+	profileName := arguments[0]
 	if _, ok := configuration.Profiles[profileName]; !ok {
-		return fmt.Errorf("profile %q not found", profileName)
+		return fmt.Errorf("commands: profile %q not found", profileName)
 	}
 	delete(configuration.Profiles, profileName)
 	if configuration.ActiveProfile == profileName {
@@ -241,9 +241,9 @@ func authRemoveRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func authSetReadonlyRun(command *cobra.Command, args []string) error {
-	profileName := args[0]
-	value, err := parseOnOff(args[1])
+func authSetReadonlyRun(command *cobra.Command, arguments []string) error {
+	profileName := arguments[0]
+	value, err := parseOnOff(arguments[1])
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func authSetReadonlyRun(command *cobra.Command, args []string) error {
 	}
 	profile, ok := configuration.Profiles[profileName]
 	if !ok {
-		return fmt.Errorf("profile %q not found", profileName)
+		return fmt.Errorf("commands: profile %q not found", profileName)
 	}
 	profile.Readonly = value
 	configuration.Profiles[profileName] = profile
@@ -277,5 +277,5 @@ func parseOnOff(input string) (bool, error) {
 	case "off", "false", "no", "0", "disable", "disabled":
 		return false, nil
 	}
-	return false, fmt.Errorf("invalid value %q: expected on or off", input)
+	return false, fmt.Errorf("commands: invalid value %q: expected on or off", input)
 }

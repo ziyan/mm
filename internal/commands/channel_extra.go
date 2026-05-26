@@ -57,7 +57,7 @@ func init() {
 	}
 }
 
-func channelReadRun(command *cobra.Command, args []string) error {
+func channelReadRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func channelReadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -83,14 +83,14 @@ func channelReadRun(command *cobra.Command, args []string) error {
 		ChannelId: channelId,
 	})
 	if err != nil {
-		return fmt.Errorf("marking channel as read: %w", err)
+		return fmt.Errorf("commands: marking channel as read: %w", err)
 	}
 
-	printer.PrintSuccess("Marked %s as read", args[0])
+	printer.PrintSuccess("Marked %s as read", arguments[0])
 	return nil
 }
 
-func channelNotifyRun(command *cobra.Command, args []string) error {
+func channelNotifyRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -107,7 +107,7 @@ func channelNotifyRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func channelNotifyRun(command *cobra.Command, args []string) error {
 		// Show current settings
 		member, _, err := apiClient.GetChannelMember(ctx, channelId, currentUser.Id, "")
 		if err != nil {
-			return fmt.Errorf("getting channel member: %w", err)
+			return fmt.Errorf("commands: getting channel member: %w", err)
 		}
 		if printer.JSONOutput {
 			printer.PrintJSON(member.NotifyProps)
@@ -145,14 +145,14 @@ func channelNotifyRun(command *cobra.Command, args []string) error {
 
 	_, err = apiClient.UpdateChannelNotifyProps(ctx, channelId, currentUser.Id, props)
 	if err != nil {
-		return fmt.Errorf("updating notification settings: %w", err)
+		return fmt.Errorf("commands: updating notification settings: %w", err)
 	}
 
-	printer.PrintSuccess("Updated notification settings for %s", args[0])
+	printer.PrintSuccess("Updated notification settings for %s", arguments[0])
 	return nil
 }
 
-func channelFavoriteRun(command *cobra.Command, args []string) error {
+func channelFavoriteRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -169,7 +169,7 @@ func channelFavoriteRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -185,14 +185,14 @@ func channelFavoriteRun(command *cobra.Command, args []string) error {
 
 	_, err = apiClient.UpdatePreferences(ctx, currentUser.Id, preferences)
 	if err != nil {
-		return fmt.Errorf("favoriting channel: %w", err)
+		return fmt.Errorf("commands: favoriting channel: %w", err)
 	}
 
-	printer.PrintSuccess("Favorited channel %s", args[0])
+	printer.PrintSuccess("Favorited channel %s", arguments[0])
 	return nil
 }
 
-func channelUnfavoriteRun(command *cobra.Command, args []string) error {
+func channelUnfavoriteRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func channelUnfavoriteRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -224,14 +224,14 @@ func channelUnfavoriteRun(command *cobra.Command, args []string) error {
 
 	_, err = apiClient.DeletePreferences(ctx, currentUser.Id, preferences)
 	if err != nil {
-		return fmt.Errorf("unfavoriting channel: %w", err)
+		return fmt.Errorf("commands: unfavoriting channel: %w", err)
 	}
 
-	printer.PrintSuccess("Unfavorited channel %s", args[0])
+	printer.PrintSuccess("Unfavorited channel %s", arguments[0])
 	return nil
 }
 
-func channelCategoriesRun(command *cobra.Command, args []string) error {
+func channelCategoriesRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -250,7 +250,7 @@ func channelCategoriesRun(command *cobra.Command, args []string) error {
 
 	categories, _, err := apiClient.GetSidebarCategoriesForTeamForUser(ctx, currentUser.Id, teamId, "")
 	if err != nil {
-		return fmt.Errorf("listing categories: %w", err)
+		return fmt.Errorf("commands: listing categories: %w", err)
 	}
 
 	if printer.JSONOutput {

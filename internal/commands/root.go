@@ -14,7 +14,7 @@ var rootCommand = &cobra.Command{
 	Short:   "Mattermost CLI client",
 	Long:    "A full-featured command-line client for Mattermost.",
 	Version: version.Version(),
-	PersistentPreRun: func(command *cobra.Command, args []string) {
+	PersistentPreRun: func(command *cobra.Command, arguments []string) {
 		jsonFlag, _ := command.Flags().GetBool("json")
 		printer.JSONOutput = jsonFlag
 

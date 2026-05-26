@@ -187,7 +187,7 @@ func formatPostWithOptions(apiClient *model.Client4, ctx context.Context, post *
 	return fmt.Sprintf("%s%s  %s  %s  %s", prefix, postId, timestamp, username, message)
 }
 
-func postCreateRun(command *cobra.Command, args []string) error {
+func postCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -198,18 +198,18 @@ func postCreateRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	var message string
-	if len(args) > 1 {
-		message = strings.Join(args[1:], " ")
+	if len(arguments) > 1 {
+		message = strings.Join(arguments[1:], " ")
 	} else {
 		data, err := os.ReadFile("/dev/stdin")
 		if err != nil {
-			return fmt.Errorf("no message provided and cannot read stdin")
+			return fmt.Errorf("commands: no message provided and cannot read stdin")
 		}
 		message = string(data)
 	}
@@ -226,18 +226,18 @@ func postCreateRun(command *cobra.Command, args []string) error {
 	for _, filePath := range filePaths {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			return fmt.Errorf("reading file %s: %w", filePath, err)
+			return fmt.Errorf("commands: reading file %s: %w", filePath, err)
 		}
 		response, _, err := apiClient.UploadFile(ctx, data, channelId, filePath)
 		if err != nil {
-			return fmt.Errorf("uploading %s: %w", filePath, err)
+			return fmt.Errorf("commands: uploading %s: %w", filePath, err)
 		}
 		post.FileIds = append(post.FileIds, response.FileInfos[0].Id)
 	}
 
 	created, _, err := apiClient.CreatePost(ctx, post)
 	if err != nil {
-		return fmt.Errorf("creating post: %w", err)
+		return fmt.Errorf("commands: creating post: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -245,7 +245,7 @@ func postCreateRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Posted %s to %s", created.Id[:8], args[0])
+	printer.PrintSuccess("Posted %s to %s", created.Id[:8], arguments[0])
 	return nil
 }
 
@@ -253,11 +253,11 @@ func postCreateRun(command *cobra.Command, args []string) error {
 func validatePostListFlags(command *cobra.Command) error {
 	threads, _ := command.Flags().GetBool("threads")
 	if threads && printer.JSONOutput {
-		return fmt.Errorf("--threads is not supported with JSON output; use --collapse-threads or omit --threads")
+		return fmt.Errorf("commands: --threads is not supported with JSON output; use --collapse-threads or omit --threads")
 	}
 	sinceString, _ := command.Flags().GetString("since")
 	if sinceString != "" && command.Flags().Changed("count") {
-		return fmt.Errorf("--count and --since cannot be used together; --since returns all posts after the given time")
+		return fmt.Errorf("commands: --count and --since cannot be used together; --since returns all posts after the given time")
 	}
 	return nil
 }
@@ -271,19 +271,19 @@ func parseSince(value string) (int64, error) {
 	}
 
 	// Try RFC3339
-	if t, err := time.Parse(time.RFC3339, value); err == nil {
-		return t.UnixMilli(), nil
+	if parsedTime, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsedTime.UnixMilli(), nil
 	}
 
 	// Try date-only YYYY-MM-DD
-	if t, err := time.Parse("2006-01-02", value); err == nil {
-		return t.UnixMilli(), nil
+	if parsedTime, err := time.Parse("2006-01-02", value); err == nil {
+		return parsedTime.UnixMilli(), nil
 	}
 
-	return 0, fmt.Errorf("cannot parse --since value %q: expected RFC3339, YYYY-MM-DD, or duration (e.g. 24h)", value)
+	return 0, fmt.Errorf("commands: cannot parse --since value %q: expected RFC3339, YYYY-MM-DD, or duration (e.g. 24h)", value)
 }
 
-func postListRun(command *cobra.Command, args []string) error {
+func postListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -294,7 +294,7 @@ func postListRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -314,12 +314,12 @@ func postListRun(command *cobra.Command, args []string) error {
 		}
 		postList, _, err = apiClient.GetPostsSince(ctx, channelId, sinceMillis, false)
 		if err != nil {
-			return fmt.Errorf("listing posts since %s: %w", sinceString, err)
+			return fmt.Errorf("commands: listing posts since %s: %w", sinceString, err)
 		}
 	} else {
 		postList, _, err = apiClient.GetPostsForChannel(ctx, channelId, 0, count, "", false, false)
 		if err != nil {
-			return fmt.Errorf("listing posts: %w", err)
+			return fmt.Errorf("commands: listing posts: %w", err)
 		}
 	}
 
@@ -429,18 +429,18 @@ func postListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postThreadRun(command *cobra.Command, args []string) error {
+func postThreadRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	postList, _, err := apiClient.GetPostThread(ctx, postId, "", false)
 	if err != nil {
-		return fmt.Errorf("getting thread: %w", err)
+		return fmt.Errorf("commands: getting thread: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -458,18 +458,18 @@ func postThreadRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postReplyRun(command *cobra.Command, args []string) error {
+func postReplyRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	rootPost, _, err := apiClient.GetPost(ctx, postId, "")
 	if err != nil {
-		return fmt.Errorf("post not found: %w", err)
+		return fmt.Errorf("commands: post not found: %w", err)
 	}
 
 	rootId := rootPost.Id
@@ -477,14 +477,14 @@ func postReplyRun(command *cobra.Command, args []string) error {
 		rootId = rootPost.RootId
 	}
 
-	message := strings.Join(args[1:], " ")
+	message := strings.Join(arguments[1:], " ")
 	created, _, err := apiClient.CreatePost(ctx, &model.Post{
 		ChannelId: rootPost.ChannelId,
 		Message:   message,
 		RootId:    rootId,
 	})
 	if err != nil {
-		return fmt.Errorf("replying: %w", err)
+		return fmt.Errorf("commands: replying: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -496,15 +496,15 @@ func postReplyRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postEditRun(command *cobra.Command, args []string) error {
+func postEditRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
-	message := strings.Join(args[1:], " ")
+	postId := normalizePostId(arguments[0])
+	message := strings.Join(arguments[1:], " ")
 
 	patch := &model.PostPatch{
 		Message: &message,
@@ -512,7 +512,7 @@ func postEditRun(command *cobra.Command, args []string) error {
 
 	updated, _, err := apiClient.PatchPost(ctx, postId, patch)
 	if err != nil {
-		return fmt.Errorf("editing post: %w", err)
+		return fmt.Errorf("commands: editing post: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -524,68 +524,68 @@ func postEditRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postDeleteRun(command *cobra.Command, args []string) error {
+func postDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	_, err = apiClient.DeletePost(ctx, postId)
 	if err != nil {
-		return fmt.Errorf("deleting post: %w", err)
+		return fmt.Errorf("commands: deleting post: %w", err)
 	}
 
-	printer.PrintSuccess("Deleted post %s", args[0])
+	printer.PrintSuccess("Deleted post %s", arguments[0])
 	return nil
 }
 
-func postPinRun(command *cobra.Command, args []string) error {
+func postPinRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	_, err = apiClient.PinPost(ctx, postId)
 	if err != nil {
-		return fmt.Errorf("pinning post: %w", err)
+		return fmt.Errorf("commands: pinning post: %w", err)
 	}
 
-	printer.PrintSuccess("Pinned post %s", args[0])
+	printer.PrintSuccess("Pinned post %s", arguments[0])
 	return nil
 }
 
-func postUnpinRun(command *cobra.Command, args []string) error {
+func postUnpinRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	_, err = apiClient.UnpinPost(ctx, postId)
 	if err != nil {
-		return fmt.Errorf("unpinning post: %w", err)
+		return fmt.Errorf("commands: unpinning post: %w", err)
 	}
 
-	printer.PrintSuccess("Unpinned post %s", args[0])
+	printer.PrintSuccess("Unpinned post %s", arguments[0])
 	return nil
 }
 
-func postReactRun(command *cobra.Command, args []string) error {
+func postReactRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	currentUser, _, err := apiClient.GetMe(ctx, "")
 	if err != nil {
@@ -595,24 +595,24 @@ func postReactRun(command *cobra.Command, args []string) error {
 	_, _, err = apiClient.SaveReaction(ctx, &model.Reaction{
 		UserId:    currentUser.Id,
 		PostId:    postId,
-		EmojiName: strings.Trim(args[1], ":"),
+		EmojiName: strings.Trim(arguments[1], ":"),
 	})
 	if err != nil {
-		return fmt.Errorf("adding reaction: %w", err)
+		return fmt.Errorf("commands: adding reaction: %w", err)
 	}
 
-	printer.PrintSuccess("Reacted :%s: to %s", args[1], args[0])
+	printer.PrintSuccess("Reacted :%s: to %s", arguments[1], arguments[0])
 	return nil
 }
 
-func postUnreactRun(command *cobra.Command, args []string) error {
+func postUnreactRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	currentUser, _, err := apiClient.GetMe(ctx, "")
 	if err != nil {
@@ -622,17 +622,17 @@ func postUnreactRun(command *cobra.Command, args []string) error {
 	_, err = apiClient.DeleteReaction(ctx, &model.Reaction{
 		UserId:    currentUser.Id,
 		PostId:    postId,
-		EmojiName: strings.Trim(args[1], ":"),
+		EmojiName: strings.Trim(arguments[1], ":"),
 	})
 	if err != nil {
-		return fmt.Errorf("removing reaction: %w", err)
+		return fmt.Errorf("commands: removing reaction: %w", err)
 	}
 
-	printer.PrintSuccess("Removed :%s: from %s", args[1], args[0])
+	printer.PrintSuccess("Removed :%s: from %s", arguments[1], arguments[0])
 	return nil
 }
 
-func postSearchRun(command *cobra.Command, args []string) error {
+func postSearchRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -643,12 +643,12 @@ func postSearchRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	query := strings.Join(args, " ")
+	query := strings.Join(arguments, " ")
 	isOrSearch, _ := command.Flags().GetBool("or")
 
 	postList, _, err := apiClient.SearchPosts(ctx, teamId, query, isOrSearch)
 	if err != nil {
-		return fmt.Errorf("searching: %w", err)
+		return fmt.Errorf("commands: searching: %w", err)
 	}
 
 	if len(postList.Order) == 0 {
@@ -675,7 +675,7 @@ func postSearchRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postPinnedRun(command *cobra.Command, args []string) error {
+func postPinnedRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -686,14 +686,14 @@ func postPinnedRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	postList, _, err := apiClient.GetPinnedPosts(ctx, channelId, "")
 	if err != nil {
-		return fmt.Errorf("getting pinned posts: %w", err)
+		return fmt.Errorf("commands: getting pinned posts: %w", err)
 	}
 
 	if len(postList.Order) == 0 {
@@ -720,7 +720,7 @@ func postPinnedRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postUnreadRun(command *cobra.Command, args []string) error {
+func postUnreadRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -736,7 +736,7 @@ func postUnreadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -745,7 +745,7 @@ func postUnreadRun(command *cobra.Command, args []string) error {
 
 	postList, _, err := apiClient.GetPostsAroundLastUnread(ctx, currentUser.Id, channelId, contextBefore, 200, false)
 	if err != nil {
-		return fmt.Errorf("getting unread posts: %w", err)
+		return fmt.Errorf("commands: getting unread posts: %w", err)
 	}
 
 	if len(postList.Order) == 0 {
@@ -753,7 +753,7 @@ func postUnreadRun(command *cobra.Command, args []string) error {
 			printer.PrintJSON(postList)
 			return nil
 		}
-		printer.PrintInfo("No unread messages in %s", args[0])
+		printer.PrintInfo("No unread messages in %s", arguments[0])
 		return nil
 	}
 

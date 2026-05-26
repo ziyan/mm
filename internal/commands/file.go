@@ -44,7 +44,7 @@ func init() {
 	rootCommand.AddCommand(fileCommand)
 }
 
-func fileUploadRun(command *cobra.Command, args []string) error {
+func fileUploadRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -55,7 +55,7 @@ func fileUploadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -63,14 +63,14 @@ func fileUploadRun(command *cobra.Command, args []string) error {
 	message, _ := command.Flags().GetString("message")
 
 	var fileIds []string
-	for _, filePath := range args[1:] {
+	for _, filePath := range arguments[1:] {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			return fmt.Errorf("reading %s: %w", filePath, err)
+			return fmt.Errorf("commands: reading %s: %w", filePath, err)
 		}
 		response, _, err := apiClient.UploadFile(ctx, data, channelId, filepath.Base(filePath))
 		if err != nil {
-			return fmt.Errorf("uploading %s: %w", filePath, err)
+			return fmt.Errorf("commands: uploading %s: %w", filePath, err)
 		}
 		fileIds = append(fileIds, response.FileInfos[0].Id)
 		printer.PrintInfo("Uploaded %s (%s)", filepath.Base(filePath), response.FileInfos[0].Id)
@@ -83,35 +83,35 @@ func fileUploadRun(command *cobra.Command, args []string) error {
 	}
 	_, _, err = apiClient.CreatePost(ctx, post)
 	if err != nil {
-		return fmt.Errorf("creating post: %w", err)
+		return fmt.Errorf("commands: creating post: %w", err)
 	}
 
-	printer.PrintSuccess("Uploaded %d file(s) to %s", len(fileIds), args[0])
+	printer.PrintSuccess("Uploaded %d file(s) to %s", len(fileIds), arguments[0])
 	return nil
 }
 
-func fileDownloadRun(command *cobra.Command, args []string) error {
+func fileDownloadRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	fileId := args[0]
+	fileId := arguments[0]
 
 	fileInfo, _, err := apiClient.GetFileInfo(ctx, fileId)
 	if err != nil {
-		return fmt.Errorf("file not found: %w", err)
+		return fmt.Errorf("commands: file not found: %w", err)
 	}
 
 	outputPath := fileInfo.Name
-	if len(args) > 1 {
-		outputPath = args[1]
+	if len(arguments) > 1 {
+		outputPath = arguments[1]
 	}
 
 	data, _, err := apiClient.GetFile(ctx, fileId)
 	if err != nil {
-		return fmt.Errorf("downloading file: %w", err)
+		return fmt.Errorf("commands: downloading file: %w", err)
 	}
 
 	if outputPath == "-" {
@@ -120,23 +120,23 @@ func fileDownloadRun(command *cobra.Command, args []string) error {
 	}
 
 	if err := os.WriteFile(outputPath, data, 0644); err != nil {
-		return fmt.Errorf("writing file: %w", err)
+		return fmt.Errorf("commands: writing file: %w", err)
 	}
 
 	printer.PrintSuccess("Downloaded %s (%d bytes)", outputPath, len(data))
 	return nil
 }
 
-func fileInfoRun(command *cobra.Command, args []string) error {
+func fileInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	fileInfo, _, err := apiClient.GetFileInfo(ctx, args[0])
+	fileInfo, _, err := apiClient.GetFileInfo(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("file not found: %w", err)
+		return fmt.Errorf("commands: file not found: %w", err)
 	}
 
 	if printer.JSONOutput {

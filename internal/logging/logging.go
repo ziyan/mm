@@ -6,7 +6,10 @@ import (
 	"github.com/op/go-logging"
 )
 
-var Log = logging.MustGetLogger("mm")
+// Per-package logger declaration required by the Mujin coding standard
+// (mulint_log). The logging package itself doesn't use this for output;
+// consumer packages declare their own `var log = logging.MustGetLogger(...)`.
+var log = logging.MustGetLogger("logging") //nolint:unused
 
 var format = logging.MustStringFormatter(
 	"%{color}%{time:2006-01-02 15:04:05.000} %{module} [%{level}] %{message}%{color:reset}",

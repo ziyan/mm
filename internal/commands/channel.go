@@ -107,12 +107,12 @@ func resolveChannelIdByDisplayName(ctx context.Context, apiClient *model.Client4
 	// for display names containing punctuation or hyphens.
 	currentUser, _, err := apiClient.GetMe(ctx, "")
 	if err != nil {
-		return "", fmt.Errorf("channel %q not found: %w", displayName, err)
+		return "", fmt.Errorf("commands: channel %q not found: %w", displayName, err)
 	}
 
 	channels, _, err := apiClient.GetChannelsForTeamForUser(ctx, teamId, currentUser.Id, false, "")
 	if err != nil {
-		return "", fmt.Errorf("channel %q not found: %w", displayName, err)
+		return "", fmt.Errorf("commands: channel %q not found: %w", displayName, err)
 	}
 
 	normalized := normalizeDisplayName(displayName)
@@ -124,7 +124,7 @@ func resolveChannelIdByDisplayName(ctx context.Context, apiClient *model.Client4
 			return channel.Id, nil
 		}
 	}
-	return "", fmt.Errorf("channel %q not found", displayName)
+	return "", fmt.Errorf("commands: channel %q not found", displayName)
 }
 
 // normalizeDisplayName collapses whitespace and lowercases for fuzzy matching.
@@ -132,7 +132,7 @@ func normalizeDisplayName(name string) string {
 	return strings.Join(strings.Fields(strings.ToLower(name)), " ")
 }
 
-func channelListRun(command *cobra.Command, args []string) error {
+func channelListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func channelListRun(command *cobra.Command, args []string) error {
 		channels, _, err = apiClient.GetChannelsForTeamForUser(ctx, teamId, currentUser.Id, false, "")
 	}
 	if err != nil {
-		return fmt.Errorf("listing channels: %w", err)
+		return fmt.Errorf("commands: listing channels: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -179,7 +179,7 @@ func channelListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func channelJoinRun(command *cobra.Command, args []string) error {
+func channelJoinRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -195,21 +195,21 @@ func channelJoinRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	_, _, err = apiClient.AddChannelMember(ctx, channelId, currentUser.Id)
 	if err != nil {
-		return fmt.Errorf("joining channel: %w", err)
+		return fmt.Errorf("commands: joining channel: %w", err)
 	}
 
-	printer.PrintSuccess("Joined channel %s", args[0])
+	printer.PrintSuccess("Joined channel %s", arguments[0])
 	return nil
 }
 
-func channelLeaveRun(command *cobra.Command, args []string) error {
+func channelLeaveRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -225,21 +225,21 @@ func channelLeaveRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	_, err = apiClient.RemoveUserFromChannel(ctx, channelId, currentUser.Id)
 	if err != nil {
-		return fmt.Errorf("leaving channel: %w", err)
+		return fmt.Errorf("commands: leaving channel: %w", err)
 	}
 
-	printer.PrintSuccess("Left channel %s", args[0])
+	printer.PrintSuccess("Left channel %s", arguments[0])
 	return nil
 }
 
-func channelCreateRun(command *cobra.Command, args []string) error {
+func channelCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -256,7 +256,7 @@ func channelCreateRun(command *cobra.Command, args []string) error {
 	private, _ := command.Flags().GetBool("private")
 
 	if displayName == "" {
-		displayName = args[0]
+		displayName = arguments[0]
 	}
 
 	channelType := model.ChannelTypeOpen
@@ -266,14 +266,14 @@ func channelCreateRun(command *cobra.Command, args []string) error {
 
 	channel, _, err := apiClient.CreateChannel(ctx, &model.Channel{
 		TeamId:      teamId,
-		Name:        args[0],
+		Name:        arguments[0],
 		DisplayName: displayName,
 		Purpose:     purpose,
 		Header:      header,
 		Type:        channelType,
 	})
 	if err != nil {
-		return fmt.Errorf("creating channel: %w", err)
+		return fmt.Errorf("commands: creating channel: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -285,7 +285,7 @@ func channelCreateRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func channelInfoRun(command *cobra.Command, args []string) error {
+func channelInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -296,14 +296,14 @@ func channelInfoRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	channel, _, err := apiClient.GetChannel(ctx, channelId)
 	if err != nil {
-		return fmt.Errorf("channel not found: %w", err)
+		return fmt.Errorf("commands: channel not found: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -321,7 +321,7 @@ func channelInfoRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func channelMembersRun(command *cobra.Command, args []string) error {
+func channelMembersRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -332,14 +332,14 @@ func channelMembersRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	members, _, err := apiClient.GetChannelMembers(ctx, channelId, 0, 200, "")
 	if err != nil {
-		return fmt.Errorf("listing members: %w", err)
+		return fmt.Errorf("commands: listing members: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -353,7 +353,7 @@ func channelMembersRun(command *cobra.Command, args []string) error {
 	}
 	users, _, err := apiClient.GetUsersByIds(ctx, userIds)
 	if err != nil {
-		return fmt.Errorf("fetching users: %w", err)
+		return fmt.Errorf("commands: fetching users: %w", err)
 	}
 	userById := make(map[string]*model.User)
 	for _, user := range users {
@@ -372,7 +372,7 @@ func channelMembersRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func channelArchiveRun(command *cobra.Command, args []string) error {
+func channelArchiveRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -383,21 +383,21 @@ func channelArchiveRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	_, err = apiClient.DeleteChannel(ctx, channelId)
 	if err != nil {
-		return fmt.Errorf("archiving channel: %w", err)
+		return fmt.Errorf("commands: archiving channel: %w", err)
 	}
 
-	printer.PrintSuccess("Archived channel %s", args[0])
+	printer.PrintSuccess("Archived channel %s", arguments[0])
 	return nil
 }
 
-func channelUnreadRun(command *cobra.Command, args []string) error {
+func channelUnreadRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -470,16 +470,16 @@ func channelUnreadRun(command *cobra.Command, args []string) error {
 	}
 
 	if printer.JSONOutput {
-		type unreadJSON struct {
+		type unreadJson struct {
 			Slug         string `json:"slug"`
 			DisplayName  string `json:"display_name"`
 			ID           string `json:"id"`
 			MentionCount int64  `json:"mention_count"`
 			MessageCount int64  `json:"message_count"`
 		}
-		var result []unreadJSON
+		var result []unreadJson
 		for _, entry := range unreadEntries {
-			result = append(result, unreadJSON{
+			result = append(result, unreadJson{
 				Slug:         entry.slug,
 				DisplayName:  entry.displayName,
 				ID:           entry.id,

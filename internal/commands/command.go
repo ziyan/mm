@@ -35,7 +35,7 @@ func init() {
 	rootCommand.AddCommand(slashCommand)
 }
 
-func slashExecuteRun(command *cobra.Command, args []string) error {
+func slashExecuteRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -46,19 +46,19 @@ func slashExecuteRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
-	commandText := strings.Join(args[1:], " ")
+	commandText := strings.Join(arguments[1:], " ")
 	if !strings.HasPrefix(commandText, "/") {
 		commandText = "/" + commandText
 	}
 
 	result, _, err := apiClient.ExecuteCommandWithTeam(ctx, channelId, teamId, commandText)
 	if err != nil {
-		return fmt.Errorf("executing command: %w", err)
+		return fmt.Errorf("commands: executing command: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -74,7 +74,7 @@ func slashExecuteRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func slashListRun(command *cobra.Command, args []string) error {
+func slashListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -87,7 +87,7 @@ func slashListRun(command *cobra.Command, args []string) error {
 
 	commands, _, err := apiClient.ListCommands(ctx, teamId, true)
 	if err != nil {
-		return fmt.Errorf("listing commands: %w", err)
+		return fmt.Errorf("commands: listing commands: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -130,7 +130,7 @@ func init() {
 	rootCommand.AddCommand(pluginCommand)
 }
 
-func pluginListRun(command *cobra.Command, args []string) error {
+func pluginListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -139,7 +139,7 @@ func pluginListRun(command *cobra.Command, args []string) error {
 
 	plugins, _, err := apiClient.GetPlugins(ctx)
 	if err != nil {
-		return fmt.Errorf("listing plugins: %w", err)
+		return fmt.Errorf("commands: listing plugins: %w", err)
 	}
 
 	if printer.JSONOutput {

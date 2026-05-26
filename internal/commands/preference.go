@@ -41,7 +41,7 @@ func init() {
 	rootCommand.AddCommand(preferenceCommand)
 }
 
-func preferenceListRun(command *cobra.Command, args []string) error {
+func preferenceListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -54,13 +54,13 @@ func preferenceListRun(command *cobra.Command, args []string) error {
 	}
 
 	var preferences model.Preferences
-	if len(args) > 0 {
-		preferences, _, err = apiClient.GetPreferencesByCategory(ctx, currentUser.Id, args[0])
+	if len(arguments) > 0 {
+		preferences, _, err = apiClient.GetPreferencesByCategory(ctx, currentUser.Id, arguments[0])
 	} else {
 		preferences, _, err = apiClient.GetPreferences(ctx, currentUser.Id)
 	}
 	if err != nil {
-		return fmt.Errorf("listing preferences: %w", err)
+		return fmt.Errorf("commands: listing preferences: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -81,7 +81,7 @@ func preferenceListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func preferenceSetRun(command *cobra.Command, args []string) error {
+func preferenceSetRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -96,22 +96,22 @@ func preferenceSetRun(command *cobra.Command, args []string) error {
 	preferences := model.Preferences{
 		{
 			UserId:   currentUser.Id,
-			Category: args[0],
-			Name:     args[1],
-			Value:    args[2],
+			Category: arguments[0],
+			Name:     arguments[1],
+			Value:    arguments[2],
 		},
 	}
 
 	_, err = apiClient.UpdatePreferences(ctx, currentUser.Id, preferences)
 	if err != nil {
-		return fmt.Errorf("setting preference: %w", err)
+		return fmt.Errorf("commands: setting preference: %w", err)
 	}
 
-	printer.PrintSuccess("Set preference %s/%s", args[0], args[1])
+	printer.PrintSuccess("Set preference %s/%s", arguments[0], arguments[1])
 	return nil
 }
 
-func preferenceDeleteRun(command *cobra.Command, args []string) error {
+func preferenceDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -126,16 +126,16 @@ func preferenceDeleteRun(command *cobra.Command, args []string) error {
 	preferences := model.Preferences{
 		{
 			UserId:   currentUser.Id,
-			Category: args[0],
-			Name:     args[1],
+			Category: arguments[0],
+			Name:     arguments[1],
 		},
 	}
 
 	_, err = apiClient.DeletePreferences(ctx, currentUser.Id, preferences)
 	if err != nil {
-		return fmt.Errorf("deleting preference: %w", err)
+		return fmt.Errorf("commands: deleting preference: %w", err)
 	}
 
-	printer.PrintSuccess("Deleted preference %s/%s", args[0], args[1])
+	printer.PrintSuccess("Deleted preference %s/%s", arguments[0], arguments[1])
 	return nil
 }

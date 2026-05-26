@@ -42,7 +42,7 @@ func init() {
 	rootCommand.AddCommand(bookmarkCommand)
 }
 
-func bookmarkListRun(command *cobra.Command, args []string) error {
+func bookmarkListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -54,14 +54,14 @@ func bookmarkListRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	bookmarks, _, err := apiClient.ListChannelBookmarksForChannel(ctx, channelId, model.GetMillis())
 	if err != nil {
-		return fmt.Errorf("listing bookmarks: %w", err)
+		return fmt.Errorf("commands: listing bookmarks: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -91,7 +91,7 @@ func bookmarkListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func bookmarkAddRun(command *cobra.Command, args []string) error {
+func bookmarkAddRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ func bookmarkAddRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -112,15 +112,15 @@ func bookmarkAddRun(command *cobra.Command, args []string) error {
 
 	bookmark := &model.ChannelBookmark{
 		ChannelId:   channelId,
-		DisplayName: args[1],
-		LinkUrl:     args[2],
+		DisplayName: arguments[1],
+		LinkUrl:     arguments[2],
 		Type:        model.ChannelBookmarkLink,
 		Emoji:       emoji,
 	}
 
 	created, _, err := apiClient.CreateChannelBookmark(ctx, bookmark)
 	if err != nil {
-		return fmt.Errorf("creating bookmark: %w", err)
+		return fmt.Errorf("commands: creating bookmark: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -128,11 +128,11 @@ func bookmarkAddRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Added bookmark %q to %s", args[1], args[0])
+	printer.PrintSuccess("Added bookmark %q to %s", arguments[1], arguments[0])
 	return nil
 }
 
-func bookmarkDeleteRun(command *cobra.Command, args []string) error {
+func bookmarkDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -144,16 +144,16 @@ func bookmarkDeleteRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
-	_, _, err = apiClient.DeleteChannelBookmark(ctx, channelId, args[1])
+	_, _, err = apiClient.DeleteChannelBookmark(ctx, channelId, arguments[1])
 	if err != nil {
-		return fmt.Errorf("deleting bookmark: %w", err)
+		return fmt.Errorf("commands: deleting bookmark: %w", err)
 	}
 
-	printer.PrintSuccess("Deleted bookmark %s", args[1])
+	printer.PrintSuccess("Deleted bookmark %s", arguments[1])
 	return nil
 }

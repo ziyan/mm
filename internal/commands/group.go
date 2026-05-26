@@ -42,7 +42,7 @@ func init() {
 	rootCommand.AddCommand(groupCommand)
 }
 
-func groupListRun(command *cobra.Command, args []string) error {
+func groupListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -65,7 +65,7 @@ func groupListRun(command *cobra.Command, args []string) error {
 			PageOpts: &model.PageOpts{Page: 0, PerPage: count},
 		})
 		if err != nil {
-			return fmt.Errorf("listing groups: %w", err)
+			return fmt.Errorf("commands: listing groups: %w", err)
 		}
 		var groups []*model.Group
 		for _, gws := range groupsWithScheme {
@@ -78,7 +78,7 @@ func groupListRun(command *cobra.Command, args []string) error {
 		PageOpts: &model.PageOpts{Page: 0, PerPage: count},
 	})
 	if err != nil {
-		return fmt.Errorf("listing groups: %w", err)
+		return fmt.Errorf("commands: listing groups: %w", err)
 	}
 	return printGroups(groups)
 }
@@ -107,16 +107,16 @@ func printGroups(groups []*model.Group) error {
 	return nil
 }
 
-func groupMembersRun(command *cobra.Command, args []string) error {
+func groupMembersRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	memberList, _, err := apiClient.GetGroupMembers(ctx, args[0])
+	memberList, _, err := apiClient.GetGroupMembers(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("listing group members: %w", err)
+		return fmt.Errorf("commands: listing group members: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -132,16 +132,16 @@ func groupMembersRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func groupInfoRun(command *cobra.Command, args []string) error {
+func groupInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	group, _, err := apiClient.GetGroup(ctx, args[0], "")
+	group, _, err := apiClient.GetGroup(ctx, arguments[0], "")
 	if err != nil {
-		return fmt.Errorf("group not found: %w", err)
+		return fmt.Errorf("commands: group not found: %w", err)
 	}
 
 	if printer.JSONOutput {

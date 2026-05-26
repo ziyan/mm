@@ -42,7 +42,7 @@ func init() {
 	rootCommand.AddCommand(draftCommand)
 }
 
-func draftListRun(command *cobra.Command, args []string) error {
+func draftListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -61,7 +61,7 @@ func draftListRun(command *cobra.Command, args []string) error {
 
 	drafts, _, err := apiClient.GetDrafts(ctx, currentUser.Id, teamId)
 	if err != nil {
-		return fmt.Errorf("listing drafts: %w", err)
+		return fmt.Errorf("commands: listing drafts: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -96,7 +96,7 @@ func draftListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func draftCreateRun(command *cobra.Command, args []string) error {
+func draftCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -113,12 +113,12 @@ func draftCreateRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
-	message := strings.Join(args[1:], " ")
+	message := strings.Join(arguments[1:], " ")
 	rootId, _ := command.Flags().GetString("root-id")
 
 	draft := &model.Draft{
@@ -130,7 +130,7 @@ func draftCreateRun(command *cobra.Command, args []string) error {
 
 	_, _, err = apiClient.UpsertDraft(ctx, draft)
 	if err != nil {
-		return fmt.Errorf("saving draft: %w", err)
+		return fmt.Errorf("commands: saving draft: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -138,11 +138,11 @@ func draftCreateRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Draft saved for channel %s", args[0])
+	printer.PrintSuccess("Draft saved for channel %s", arguments[0])
 	return nil
 }
 
-func draftDeleteRun(command *cobra.Command, args []string) error {
+func draftDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -159,16 +159,16 @@ func draftDeleteRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	_, _, err = apiClient.DeleteDraft(ctx, currentUser.Id, channelId, "")
 	if err != nil {
-		return fmt.Errorf("deleting draft: %w", err)
+		return fmt.Errorf("commands: deleting draft: %w", err)
 	}
 
-	printer.PrintSuccess("Draft deleted for channel %s", args[0])
+	printer.PrintSuccess("Draft deleted for channel %s", arguments[0])
 	return nil
 }

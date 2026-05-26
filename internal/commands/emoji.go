@@ -50,7 +50,7 @@ func init() {
 	rootCommand.AddCommand(emojiCommand)
 }
 
-func emojiListRun(command *cobra.Command, args []string) error {
+func emojiListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -60,7 +60,7 @@ func emojiListRun(command *cobra.Command, args []string) error {
 	count, _ := command.Flags().GetInt("count")
 	emojis, _, err := apiClient.GetEmojiList(ctx, 0, count)
 	if err != nil {
-		return fmt.Errorf("listing emoji: %w", err)
+		return fmt.Errorf("commands: listing emoji: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -76,7 +76,7 @@ func emojiListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func emojiCreateRun(command *cobra.Command, args []string) error {
+func emojiCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -88,17 +88,17 @@ func emojiCreateRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	imageData, err := os.ReadFile(args[1])
+	imageData, err := os.ReadFile(arguments[1])
 	if err != nil {
-		return fmt.Errorf("reading image: %w", err)
+		return fmt.Errorf("commands: reading image: %w", err)
 	}
 
 	emoji, _, err := apiClient.CreateEmoji(ctx, &model.Emoji{
-		Name:      args[0],
+		Name:      arguments[0],
 		CreatorId: currentUser.Id,
-	}, imageData, filepath.Base(args[1]))
+	}, imageData, filepath.Base(arguments[1]))
 	if err != nil {
-		return fmt.Errorf("creating emoji: %w", err)
+		return fmt.Errorf("commands: creating emoji: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -110,37 +110,37 @@ func emojiCreateRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func emojiDeleteRun(command *cobra.Command, args []string) error {
+func emojiDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	emoji, _, err := apiClient.GetEmojiByName(ctx, args[0])
+	emoji, _, err := apiClient.GetEmojiByName(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("emoji not found: %w", err)
+		return fmt.Errorf("commands: emoji not found: %w", err)
 	}
 
 	_, err = apiClient.DeleteEmoji(ctx, emoji.Id)
 	if err != nil {
-		return fmt.Errorf("deleting emoji: %w", err)
+		return fmt.Errorf("commands: deleting emoji: %w", err)
 	}
 
-	printer.PrintSuccess("Deleted emoji :%s:", args[0])
+	printer.PrintSuccess("Deleted emoji :%s:", arguments[0])
 	return nil
 }
 
-func emojiSearchRun(command *cobra.Command, args []string) error {
+func emojiSearchRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	emojis, _, err := apiClient.AutocompleteEmoji(ctx, args[0], "")
+	emojis, _, err := apiClient.AutocompleteEmoji(ctx, arguments[0], "")
 	if err != nil {
-		return fmt.Errorf("searching emoji: %w", err)
+		return fmt.Errorf("commands: searching emoji: %w", err)
 	}
 
 	if printer.JSONOutput {

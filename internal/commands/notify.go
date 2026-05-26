@@ -28,18 +28,18 @@ func init() {
 	rootCommand.AddCommand(notifyCommand)
 }
 
-func notifyRun(command *cobra.Command, args []string) error {
+func notifyRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	websocketUrl := client.WebSocketUrl(server.URL)
+	websocketUrl := client.WebSocketURL(server.URL)
 
 	websocketClient, err := model.NewWebSocketClient4(websocketUrl, server.Token)
 	if err != nil {
-		return fmt.Errorf("connecting to websocket: %w", err)
+		return fmt.Errorf("commands: connecting to websocket: %w", err)
 	}
 	defer websocketClient.Close()
 
@@ -52,7 +52,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 	if channelFilter != "" {
 		channelId, err := resolveChannelId(ctx, apiClient, server.TeamID, channelFilter)
 		if err != nil {
-			return fmt.Errorf("resolving --channel filter: %w", err)
+			return fmt.Errorf("commands: resolving --channel filter: %w", err)
 		}
 		channelFilterId = channelId
 	}
@@ -104,7 +104,7 @@ func notifyRun(command *cobra.Command, args []string) error {
 
 		case event, ok := <-websocketClient.EventChannel:
 			if !ok {
-				return fmt.Errorf("websocket connection closed")
+				return fmt.Errorf("commands: websocket connection closed")
 			}
 
 			eventType := string(event.EventType())
@@ -127,9 +127,9 @@ func notifyRun(command *cobra.Command, args []string) error {
 			switch eventType {
 			case "posted":
 				data := event.GetData()
-				postJSON, _ := data["post"].(string)
+				postJson, _ := data["post"].(string)
 				var post model.Post
-				if err := json.Unmarshal([]byte(postJSON), &post); err != nil {
+				if err := json.Unmarshal([]byte(postJson), &post); err != nil {
 					continue
 				}
 				channelName, _ := data["channel_display_name"].(string)
@@ -181,9 +181,9 @@ func notifyRun(command *cobra.Command, args []string) error {
 
 			case "reaction_added", "reaction_removed":
 				data := event.GetData()
-				reactionJSON, _ := data["reaction"].(string)
+				reactionJson, _ := data["reaction"].(string)
 				var reaction model.Reaction
-				if err := json.Unmarshal([]byte(reactionJSON), &reaction); err != nil {
+				if err := json.Unmarshal([]byte(reactionJson), &reaction); err != nil {
 					continue
 				}
 				action := "reacted"

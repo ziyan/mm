@@ -70,7 +70,7 @@ func printUserProfile(user *model.User) {
 	}
 }
 
-func userMeRun(command *cobra.Command, args []string) error {
+func userMeRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -79,7 +79,7 @@ func userMeRun(command *cobra.Command, args []string) error {
 
 	currentUser, _, err := apiClient.GetMe(ctx, "")
 	if err != nil {
-		return fmt.Errorf("getting profile: %w", err)
+		return fmt.Errorf("commands: getting profile: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -91,16 +91,16 @@ func userMeRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func userInfoRun(command *cobra.Command, args []string) error {
+func userInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	user, _, err := apiClient.GetUserByUsername(ctx, args[0], "")
+	user, _, err := apiClient.GetUserByUsername(ctx, arguments[0], "")
 	if err != nil {
-		return fmt.Errorf("user not found: %w", err)
+		return fmt.Errorf("commands: user not found: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -121,7 +121,7 @@ func userInfoRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func userStatusRun(command *cobra.Command, args []string) error {
+func userStatusRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -143,15 +143,15 @@ func userStatusRun(command *cobra.Command, args []string) error {
 		}
 		_, _, err := apiClient.UpdateUserCustomStatus(ctx, currentUser.Id, customStatus)
 		if err != nil {
-			return fmt.Errorf("setting custom status: %w", err)
+			return fmt.Errorf("commands: setting custom status: %w", err)
 		}
 		printer.PrintSuccess("Custom status updated")
 	}
 
-	if len(args) == 0 {
+	if len(arguments) == 0 {
 		status, _, err := apiClient.GetUserStatus(ctx, currentUser.Id, "")
 		if err != nil {
-			return fmt.Errorf("getting status: %w", err)
+			return fmt.Errorf("commands: getting status: %w", err)
 		}
 		if printer.JSONOutput {
 			printer.PrintJSON(status)
@@ -161,11 +161,11 @@ func userStatusRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	statusValue := args[0]
+	statusValue := arguments[0]
 	switch statusValue {
 	case "online", "away", "dnd", "offline":
 	default:
-		return fmt.Errorf("invalid status: %s (use: online, away, dnd, offline)", statusValue)
+		return fmt.Errorf("commands: invalid status: %s (use: online, away, dnd, offline)", statusValue)
 	}
 
 	updatedStatus, _, err := apiClient.UpdateUserStatus(ctx, currentUser.Id, &model.Status{
@@ -174,7 +174,7 @@ func userStatusRun(command *cobra.Command, args []string) error {
 		Manual: true,
 	})
 	if err != nil {
-		return fmt.Errorf("setting status: %w", err)
+		return fmt.Errorf("commands: setting status: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -186,7 +186,7 @@ func userStatusRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func userSearchRun(command *cobra.Command, args []string) error {
+func userSearchRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -194,10 +194,10 @@ func userSearchRun(command *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	users, _, err := apiClient.SearchUsers(ctx, &model.UserSearch{
-		Term: args[0],
+		Term: arguments[0],
 	})
 	if err != nil {
-		return fmt.Errorf("searching users: %w", err)
+		return fmt.Errorf("commands: searching users: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -213,7 +213,7 @@ func userSearchRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func userListRun(command *cobra.Command, args []string) error {
+func userListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func userListRun(command *cobra.Command, args []string) error {
 	if server.TeamID != "" {
 		members, _, err := apiClient.GetTeamMembers(ctx, server.TeamID, 0, count, "")
 		if err != nil {
-			return fmt.Errorf("listing team members: %w", err)
+			return fmt.Errorf("commands: listing team members: %w", err)
 		}
 		userIds := make([]string, len(members))
 		for index, member := range members {
@@ -234,13 +234,13 @@ func userListRun(command *cobra.Command, args []string) error {
 		}
 		users, _, err = apiClient.GetUsersByIds(ctx, userIds)
 		if err != nil {
-			return fmt.Errorf("fetching users: %w", err)
+			return fmt.Errorf("commands: fetching users: %w", err)
 		}
 	} else {
 		var err error
 		users, _, err = apiClient.GetUsers(ctx, 0, count, "")
 		if err != nil {
-			return fmt.Errorf("listing users: %w", err)
+			return fmt.Errorf("commands: listing users: %w", err)
 		}
 	}
 

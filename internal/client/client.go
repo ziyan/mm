@@ -12,18 +12,18 @@ import (
 func New() (*model.Client4, *config.ServerProfile, error) {
 	configuration, err := config.Load()
 	if err != nil {
-		return nil, nil, fmt.Errorf("loading config: %w", err)
+		return nil, nil, fmt.Errorf("client: loading config: %w", err)
 	}
 	server, err := configuration.ActiveServer()
 	if err != nil {
 		return nil, nil, err
 	}
-	serverURL := server.URL
-	if !strings.HasPrefix(serverURL, "http") {
-		serverURL = "https://" + serverURL
+	serverUrl := server.URL
+	if !strings.HasPrefix(serverUrl, "http") {
+		serverUrl = "https://" + serverUrl
 	}
-	serverURL = strings.TrimRight(serverURL, "/")
-	apiClient := model.NewAPIv4Client(serverURL)
+	serverUrl = strings.TrimRight(serverUrl, "/")
+	apiClient := model.NewAPIv4Client(serverUrl)
 	apiClient.SetToken(server.Token)
 	if server.Readonly {
 		base := apiClient.HTTPClient.Transport
@@ -38,8 +38,8 @@ func New() (*model.Client4, *config.ServerProfile, error) {
 	return apiClient, server, nil
 }
 
-func WebSocketUrl(serverURL string) string {
-	url := strings.TrimRight(serverURL, "/")
+func WebSocketURL(serverUrl string) string {
+	url := strings.TrimRight(serverUrl, "/")
 	url = strings.Replace(url, "https://", "wss://", 1)
 	url = strings.Replace(url, "http://", "ws://", 1)
 	if !strings.HasPrefix(url, "ws") {

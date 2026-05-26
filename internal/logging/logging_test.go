@@ -17,7 +17,7 @@ func TestSetup(t *testing.T) {
 }
 
 func TestLoggerExists(t *testing.T) {
-	if Log == nil {
-		t.Error("Log should not be nil")
+	if log == nil {
+		t.Error("log should not be nil")
 	}
 }
