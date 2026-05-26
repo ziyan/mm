@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/spf13/cobra"
@@ -98,6 +99,38 @@ func printPostsWithUsers(ctx context.Context, apiClient *model.Client4, posts []
 		"posts": posts,
 		"users": users,
 	})
+}
+
+// channelDisplayLabel returns a human-readable label for a channel. For DM
+// channels the server leaves DisplayName empty (the web client computes it
+// from membership), so we fetch the partner user and use their username.
+func channelDisplayLabel(ctx context.Context, apiClient *model.Client4, currentUserId string, channel *model.Channel) string {
+	if channel.DisplayName != "" {
+		return channel.DisplayName
+	}
+	if channel.Type == model.ChannelTypeDirect {
+		parts := strings.Split(channel.Name, "__")
+		var partnerId string
+		for _, part := range parts {
+			if part != "" && part != currentUserId {
+				partnerId = part
+				break
+			}
+		}
+		// DM-to-self: both halves of the name equal currentUserId.
+		if partnerId == "" && len(parts) > 0 && parts[0] != "" {
+			partnerId = parts[0]
+		}
+		if partnerId != "" {
+			if user, _, err := apiClient.GetUser(ctx, partnerId, ""); err == nil {
+				return user.Username
+			}
+		}
+	}
+	if channel.Name != "" {
+		return channel.Name
+	}
+	return channel.Id[:8]
 }
 
 // resolveTeamId returns the team ID from the --team flag, the active profile, or an error.

@@ -79,7 +79,7 @@ func draftListRun(command *cobra.Command, args []string) error {
 		channelName := draft.ChannelId[:8]
 		channel, _, err := apiClient.GetChannel(ctx, draft.ChannelId)
 		if err == nil {
-			channelName = channel.DisplayName
+			channelName = channelDisplayLabel(ctx, apiClient, currentUser.Id, channel)
 		}
 		threadIndicator := ""
 		if draft.RootId != "" {
