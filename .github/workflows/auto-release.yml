@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   release:
@@ -26,7 +27,7 @@ jobs:
         with:
           fetch-depth: 0
           # RELEASE_TOKEN is required so the resulting commit and tag pushes
-          # bypass the branch restriction and trigger the existing release
+          # bypass any branch restriction and trigger the existing Release
           # workflow on tag push.
           token: ${{ secrets.RELEASE_TOKEN }}
 
@@ -37,6 +38,8 @@ jobs:
 
       - name: Run release script
         id: release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: bash .github/scripts/release.sh auto
 
       - name: Push commit and tag

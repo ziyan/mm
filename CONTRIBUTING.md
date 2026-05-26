@@ -208,15 +208,17 @@ Run `make lint` before submitting a PR.
 
 ## Releases
 
-Releases are driven automatically by the **Auto Release** workflow on every push to `main`. Each PR is expected to add a bullet under `## [Unreleased]` in `CHANGELOG.md`; the bullet's section determines the bump:
+Releases are driven automatically by the **Auto Release** workflow on every push to `main`. The changelog source is each PR's description, not `CHANGELOG.md`.
 
-| Section | Bump |
-|---------|------|
+Every PR description must include a `## Changelog` block — the template at `.github/pull_request_template.md` provides the scaffold. Pick exactly one section heading and write one bullet:
+
+| Section heading | Bump |
+|-----------------|------|
 | `### Added` / `### Changed` / `### Removed` / `### Deprecated` | minor |
 | `### Fixed` / `### Security` | patch |
 
-After merge, the bot moves the Unreleased entries into a dated `## [X.Y.Z]` section, commits as `chore(release): X.Y.Z`, and pushes the tag — which triggers the existing **Release** workflow to build cross-platform binaries and publish a GitHub release.
+The **Changelog Guard** workflow rejects any PR whose description's `## Changelog` block is still the template placeholder. Apply the `skip-changelog` label to bypass for CI tweaks, docs typos, or internal-only refactors.
+
+After merge, the bot enumerates PRs since the last tag, extracts each `## Changelog` block, composes a new `## [X.Y.Z]` section in `CHANGELOG.md`, commits as `chore(release): X.Y.Z`, and pushes the tag — which triggers the existing **Release** workflow to build cross-platform binaries and publish a GitHub release with the same notes.
 
 Major releases are manual: run the **Major Release** workflow from the Actions tab and type `MAJOR` into the confirmation input.
-
-If a PR has no observable change (CI tweaks, internal refactors, docs typos), apply the `skip-changelog` label to bypass the changelog guard.
