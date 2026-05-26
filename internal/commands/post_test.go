@@ -574,15 +574,15 @@ func TestDmSendCommandAcceptsOneArg(t *testing.T) {
 		t.Errorf("dm send should accept 1 arg (username only for stdin): %v", err)
 	}
 
-	// Should also accept 2+ args (username + message)
+	// Should also accept 2+ arguments (username + message)
 	err = sendCommand.Args(sendCommand, []string{"someuser", "hello", "world"})
 	if err != nil {
-		t.Errorf("dm send should accept multiple args: %v", err)
+		t.Errorf("dm send should accept multiple arguments: %v", err)
 	}
 
-	// Should reject 0 args
+	// Should reject 0 arguments
 	err = sendCommand.Args(sendCommand, []string{})
 	if err == nil {
-		t.Error("dm send should reject 0 args")
+		t.Error("dm send should reject 0 arguments")
 	}
 }

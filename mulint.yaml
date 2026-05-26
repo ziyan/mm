@@ -1,0 +1,28 @@
+# mm follows the Mujin coding standard (see ~/mujin/dev/codeguide). This
+# configures mulint identically to the canonical Mujin Go projects:
+#
+#   - All analyzers on except singleletter (registered but off by default
+#     in upstream mulint — too aggressive for idiomatic Go like time.Parse
+#     return values).
+#   - Per-project compounds list lets domain words survive DP segmentation
+#     as a single piece.
+
+linters:
+  mulint_camelcase:    true
+  mulint_naming:       true
+  mulint_abbreviation: true
+  mulint_singleletter: false
+  mulint_errorprefix:  true
+  mulint_log:          true
+  mulint_recover:      true
+  mulint_structtag:    true
+
+reports:
+  maximumReportsPerLinter: 25
+
+extra:
+  compounds:
+    # web hooks are universally written as one word; mulint's default
+    # segmentation splits them. Keep webhookCommand / webhookListIncomingRun
+    # / etc. intact.
+    - webhook

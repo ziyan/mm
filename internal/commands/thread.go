@@ -69,7 +69,7 @@ func init() {
 	rootCommand.AddCommand(threadCommand)
 }
 
-func threadListRun(command *cobra.Command, args []string) error {
+func threadListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -98,7 +98,7 @@ func threadListRun(command *cobra.Command, args []string) error {
 
 	threads, _, err := apiClient.GetUserThreads(ctx, currentUser.Id, teamId, options)
 	if err != nil {
-		return fmt.Errorf("listing threads: %w", err)
+		return fmt.Errorf("commands: listing threads: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -137,7 +137,7 @@ func threadListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func threadViewRun(command *cobra.Command, args []string) error {
+func threadViewRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -154,11 +154,11 @@ func threadViewRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	threadId := args[0]
+	threadId := arguments[0]
 
 	thread, _, err := apiClient.GetUserThread(ctx, currentUser.Id, teamId, threadId, true)
 	if err != nil {
-		return fmt.Errorf("getting thread: %w", err)
+		return fmt.Errorf("commands: getting thread: %w", err)
 	}
 
 	if thread.Post == nil {
@@ -174,7 +174,7 @@ func threadViewRun(command *cobra.Command, args []string) error {
 			printer.PrintJSON(thread)
 			return nil
 		}
-		return fmt.Errorf("getting thread posts: %w", err)
+		return fmt.Errorf("commands: getting thread posts: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -195,7 +195,7 @@ func threadViewRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func threadFollowRun(command *cobra.Command, args []string) error {
+func threadFollowRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -212,16 +212,16 @@ func threadFollowRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, err = apiClient.UpdateThreadFollowForUser(ctx, currentUser.Id, teamId, args[0], true)
+	_, err = apiClient.UpdateThreadFollowForUser(ctx, currentUser.Id, teamId, arguments[0], true)
 	if err != nil {
-		return fmt.Errorf("following thread: %w", err)
+		return fmt.Errorf("commands: following thread: %w", err)
 	}
 
-	printer.PrintSuccess("Following thread %s", args[0])
+	printer.PrintSuccess("Following thread %s", arguments[0])
 	return nil
 }
 
-func threadUnfollowRun(command *cobra.Command, args []string) error {
+func threadUnfollowRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -238,16 +238,16 @@ func threadUnfollowRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, err = apiClient.UpdateThreadFollowForUser(ctx, currentUser.Id, teamId, args[0], false)
+	_, err = apiClient.UpdateThreadFollowForUser(ctx, currentUser.Id, teamId, arguments[0], false)
 	if err != nil {
-		return fmt.Errorf("unfollowing thread: %w", err)
+		return fmt.Errorf("commands: unfollowing thread: %w", err)
 	}
 
-	printer.PrintSuccess("Unfollowed thread %s", args[0])
+	printer.PrintSuccess("Unfollowed thread %s", arguments[0])
 	return nil
 }
 
-func threadReadRun(command *cobra.Command, args []string) error {
+func threadReadRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -264,16 +264,16 @@ func threadReadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, _, err = apiClient.UpdateThreadReadForUser(ctx, currentUser.Id, teamId, args[0], model.GetMillis())
+	_, _, err = apiClient.UpdateThreadReadForUser(ctx, currentUser.Id, teamId, arguments[0], model.GetMillis())
 	if err != nil {
-		return fmt.Errorf("marking thread as read: %w", err)
+		return fmt.Errorf("commands: marking thread as read: %w", err)
 	}
 
-	printer.PrintSuccess("Marked thread %s as read", args[0])
+	printer.PrintSuccess("Marked thread %s as read", arguments[0])
 	return nil
 }
 
-func threadUnreadRun(command *cobra.Command, args []string) error {
+func threadUnreadRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -290,16 +290,16 @@ func threadUnreadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, _, err = apiClient.SetThreadUnreadByPostId(ctx, currentUser.Id, teamId, args[0], args[0])
+	_, _, err = apiClient.SetThreadUnreadByPostId(ctx, currentUser.Id, teamId, arguments[0], arguments[0])
 	if err != nil {
-		return fmt.Errorf("marking thread as unread: %w", err)
+		return fmt.Errorf("commands: marking thread as unread: %w", err)
 	}
 
-	printer.PrintSuccess("Marked thread as unread from post %s", args[0])
+	printer.PrintSuccess("Marked thread as unread from post %s", arguments[0])
 	return nil
 }
 
-func threadReadAllRun(command *cobra.Command, args []string) error {
+func threadReadAllRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -318,7 +318,7 @@ func threadReadAllRun(command *cobra.Command, args []string) error {
 
 	_, err = apiClient.UpdateThreadsReadForUser(ctx, currentUser.Id, teamId)
 	if err != nil {
-		return fmt.Errorf("marking all threads as read: %w", err)
+		return fmt.Errorf("commands: marking all threads as read: %w", err)
 	}
 
 	printer.PrintSuccess("Marked all threads as read")

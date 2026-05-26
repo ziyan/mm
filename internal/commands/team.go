@@ -48,7 +48,7 @@ func init() {
 	rootCommand.AddCommand(teamCommand)
 }
 
-func teamListRun(command *cobra.Command, args []string) error {
+func teamListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -57,12 +57,12 @@ func teamListRun(command *cobra.Command, args []string) error {
 
 	currentUser, _, err := apiClient.GetMe(ctx, "")
 	if err != nil {
-		return fmt.Errorf("getting user: %w", err)
+		return fmt.Errorf("commands: getting user: %w", err)
 	}
 
 	teams, _, err := apiClient.GetTeamsForUser(ctx, currentUser.Id, "")
 	if err != nil {
-		return fmt.Errorf("listing teams: %w", err)
+		return fmt.Errorf("commands: listing teams: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -85,16 +85,16 @@ func teamListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func teamSwitchRun(command *cobra.Command, args []string) error {
+func teamSwitchRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	team, _, err := apiClient.GetTeamByName(ctx, args[0], "")
+	team, _, err := apiClient.GetTeamByName(ctx, arguments[0], "")
 	if err != nil {
-		return fmt.Errorf("team not found: %w", err)
+		return fmt.Errorf("commands: team not found: %w", err)
 	}
 
 	configuration, err := config.Load()
@@ -115,7 +115,7 @@ func teamSwitchRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func teamInfoRun(command *cobra.Command, args []string) error {
+func teamInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -123,17 +123,17 @@ func teamInfoRun(command *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	var teamName string
-	if len(args) > 0 {
-		teamName = args[0]
+	if len(arguments) > 0 {
+		teamName = arguments[0]
 	} else if server.TeamName != "" {
 		teamName = server.TeamName
 	} else {
-		return fmt.Errorf("specify a team name or set active team with: mm team switch <name>")
+		return fmt.Errorf("commands: specify a team name or set active team with: mm team switch <name>")
 	}
 
 	team, _, err := apiClient.GetTeamByName(ctx, teamName, "")
 	if err != nil {
-		return fmt.Errorf("team not found: %w", err)
+		return fmt.Errorf("commands: team not found: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -150,7 +150,7 @@ func teamInfoRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func teamMembersRun(command *cobra.Command, args []string) error {
+func teamMembersRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -158,20 +158,20 @@ func teamMembersRun(command *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	teamId := server.TeamID
-	if len(args) > 0 {
-		team, _, err := apiClient.GetTeamByName(ctx, args[0], "")
+	if len(arguments) > 0 {
+		team, _, err := apiClient.GetTeamByName(ctx, arguments[0], "")
 		if err != nil {
-			return fmt.Errorf("team not found: %w", err)
+			return fmt.Errorf("commands: team not found: %w", err)
 		}
 		teamId = team.Id
 	}
 	if teamId == "" {
-		return fmt.Errorf("specify a team name or set active team with: mm team switch <name>")
+		return fmt.Errorf("commands: specify a team name or set active team with: mm team switch <name>")
 	}
 
 	members, _, err := apiClient.GetTeamMembers(ctx, teamId, 0, 200, "")
 	if err != nil {
-		return fmt.Errorf("listing members: %w", err)
+		return fmt.Errorf("commands: listing members: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -185,7 +185,7 @@ func teamMembersRun(command *cobra.Command, args []string) error {
 	}
 	users, _, err := apiClient.GetUsersByIds(ctx, userIds)
 	if err != nil {
-		return fmt.Errorf("fetching users: %w", err)
+		return fmt.Errorf("commands: fetching users: %w", err)
 	}
 	userById := make(map[string]*model.User)
 	for _, user := range users {

@@ -57,7 +57,7 @@ func init() {
 	}
 }
 
-func authSessionsRun(command *cobra.Command, args []string) error {
+func authSessionsRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func authSessionsRun(command *cobra.Command, args []string) error {
 
 	sessions, _, err := apiClient.GetSessions(ctx, currentUser.Id, "")
 	if err != nil {
-		return fmt.Errorf("listing sessions: %w", err)
+		return fmt.Errorf("commands: listing sessions: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -97,23 +97,23 @@ func authSessionsRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func authRevokeSessionRun(command *cobra.Command, args []string) error {
+func authRevokeSessionRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	_, err = apiClient.RevokeSession(ctx, "me", args[0])
+	_, err = apiClient.RevokeSession(ctx, "me", arguments[0])
 	if err != nil {
-		return fmt.Errorf("revoking session: %w", err)
+		return fmt.Errorf("commands: revoking session: %w", err)
 	}
 
-	printer.PrintSuccess("Revoked session %s", args[0])
+	printer.PrintSuccess("Revoked session %s", arguments[0])
 	return nil
 }
 
-func authRevokeAllRun(command *cobra.Command, args []string) error {
+func authRevokeAllRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -127,14 +127,14 @@ func authRevokeAllRun(command *cobra.Command, args []string) error {
 
 	_, err = apiClient.RevokeAllSessions(ctx, currentUser.Id)
 	if err != nil {
-		return fmt.Errorf("revoking all sessions: %w", err)
+		return fmt.Errorf("commands: revoking all sessions: %w", err)
 	}
 
 	printer.PrintSuccess("Revoked all sessions")
 	return nil
 }
 
-func authTokenCreateRun(command *cobra.Command, args []string) error {
+func authTokenCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -146,9 +146,9 @@ func authTokenCreateRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	token, _, err := apiClient.CreateUserAccessToken(ctx, currentUser.Id, args[0])
+	token, _, err := apiClient.CreateUserAccessToken(ctx, currentUser.Id, arguments[0])
 	if err != nil {
-		return fmt.Errorf("creating token: %w", err)
+		return fmt.Errorf("commands: creating token: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -164,7 +164,7 @@ func authTokenCreateRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func authTokenListRun(command *cobra.Command, args []string) error {
+func authTokenListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -178,7 +178,7 @@ func authTokenListRun(command *cobra.Command, args []string) error {
 
 	tokens, _, err := apiClient.GetUserAccessTokensForUser(ctx, currentUser.Id, 0, 200)
 	if err != nil {
-		return fmt.Errorf("listing tokens: %w", err)
+		return fmt.Errorf("commands: listing tokens: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -198,18 +198,18 @@ func authTokenListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func authTokenRevokeRun(command *cobra.Command, args []string) error {
+func authTokenRevokeRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	_, err = apiClient.RevokeUserAccessToken(ctx, args[0])
+	_, err = apiClient.RevokeUserAccessToken(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("revoking token: %w", err)
+		return fmt.Errorf("commands: revoking token: %w", err)
 	}
 
-	printer.PrintSuccess("Revoked token %s", args[0])
+	printer.PrintSuccess("Revoked token %s", arguments[0])
 	return nil
 }

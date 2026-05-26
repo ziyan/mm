@@ -43,7 +43,7 @@ func init() {
 	rootCommand.AddCommand(scheduledCommand)
 }
 
-func scheduledListRun(command *cobra.Command, args []string) error {
+func scheduledListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -57,7 +57,7 @@ func scheduledListRun(command *cobra.Command, args []string) error {
 
 	postsMap, _, err := apiClient.GetUserScheduledPosts(ctx, teamId, true)
 	if err != nil {
-		return fmt.Errorf("listing scheduled posts: %w", err)
+		return fmt.Errorf("commands: listing scheduled posts: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -98,7 +98,7 @@ func scheduledListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func scheduledCreateRun(command *cobra.Command, args []string) error {
+func scheduledCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -110,17 +110,17 @@ func scheduledCreateRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
 
-	scheduledAt, err := parseScheduleTime(args[1])
+	scheduledAt, err := parseScheduleTime(arguments[1])
 	if err != nil {
 		return err
 	}
 
-	message := strings.Join(args[2:], " ")
+	message := strings.Join(arguments[2:], " ")
 	rootId, _ := command.Flags().GetString("root-id")
 
 	post := &model.ScheduledPost{
@@ -134,7 +134,7 @@ func scheduledCreateRun(command *cobra.Command, args []string) error {
 
 	created, _, err := apiClient.CreateScheduledPost(ctx, post)
 	if err != nil {
-		return fmt.Errorf("scheduling post: %w", err)
+		return fmt.Errorf("commands: scheduling post: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -142,23 +142,23 @@ func scheduledCreateRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Post scheduled for %s in %s", printer.FormatTime(scheduledAt), args[0])
+	printer.PrintSuccess("Post scheduled for %s in %s", printer.FormatTime(scheduledAt), arguments[0])
 	return nil
 }
 
-func scheduledDeleteRun(command *cobra.Command, args []string) error {
+func scheduledDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	_, _, err = apiClient.DeleteScheduledPost(ctx, args[0])
+	_, _, err = apiClient.DeleteScheduledPost(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("deleting scheduled post: %w", err)
+		return fmt.Errorf("commands: deleting scheduled post: %w", err)
 	}
 
-	printer.PrintSuccess("Deleted scheduled post %s", args[0])
+	printer.PrintSuccess("Deleted scheduled post %s", arguments[0])
 	return nil
 }
 
@@ -192,5 +192,5 @@ func parseScheduleTime(input string) (int64, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("invalid time format %q (use: 2006-01-02T15:04, 15:04, or duration like 1h30m)", input)
+	return 0, fmt.Errorf("commands: invalid time format %q (use: 2006-01-02T15:04, 15:04, or duration like 1h30m)", input)
 }

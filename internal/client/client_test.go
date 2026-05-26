@@ -64,9 +64,9 @@ func TestWebSocketUrl(t *testing.T) {
 		{"http://localhost:8065", "ws://localhost:8065"},
 	}
 	for _, tt := range tests {
-		got := WebSocketUrl(tt.input)
+		got := WebSocketURL(tt.input)
 		if got != tt.want {
-			t.Errorf("WebSocketUrl(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("WebSocketURL(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

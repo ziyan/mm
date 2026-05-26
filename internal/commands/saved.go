@@ -57,7 +57,7 @@ func printPostList(apiClient *model.Client4, ctx context.Context, postList *mode
 	}
 }
 
-func savedListRun(command *cobra.Command, args []string) error {
+func savedListRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -83,7 +83,7 @@ func savedListRun(command *cobra.Command, args []string) error {
 		}
 		result, _, err := apiClient.GetFlaggedPostsForUserInChannel(ctx, currentUser.Id, channelId, 0, count)
 		if err != nil {
-			return fmt.Errorf("listing saved posts: %w", err)
+			return fmt.Errorf("commands: listing saved posts: %w", err)
 		}
 		if printer.JSONOutput {
 			printPostListWithUsers(ctx, apiClient, result)
@@ -93,7 +93,7 @@ func savedListRun(command *cobra.Command, args []string) error {
 	} else {
 		result, _, err := apiClient.GetFlaggedPostsForUser(ctx, currentUser.Id, 0, count)
 		if err != nil {
-			return fmt.Errorf("listing saved posts: %w", err)
+			return fmt.Errorf("commands: listing saved posts: %w", err)
 		}
 		if printer.JSONOutput {
 			printPostListWithUsers(ctx, apiClient, result)
@@ -105,7 +105,7 @@ func savedListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func savedAddRun(command *cobra.Command, args []string) error {
+func savedAddRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -121,21 +121,21 @@ func savedAddRun(command *cobra.Command, args []string) error {
 		{
 			UserId:   currentUser.Id,
 			Category: model.PreferenceCategoryFlaggedPost,
-			Name:     args[0],
+			Name:     arguments[0],
 			Value:    "true",
 		},
 	}
 
 	_, err = apiClient.UpdatePreferences(ctx, currentUser.Id, preferences)
 	if err != nil {
-		return fmt.Errorf("saving post: %w", err)
+		return fmt.Errorf("commands: saving post: %w", err)
 	}
 
-	printer.PrintSuccess("Saved post %s", args[0])
+	printer.PrintSuccess("Saved post %s", arguments[0])
 	return nil
 }
 
-func savedRemoveRun(command *cobra.Command, args []string) error {
+func savedRemoveRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -151,15 +151,15 @@ func savedRemoveRun(command *cobra.Command, args []string) error {
 		{
 			UserId:   currentUser.Id,
 			Category: model.PreferenceCategoryFlaggedPost,
-			Name:     args[0],
+			Name:     arguments[0],
 		},
 	}
 
 	_, err = apiClient.DeletePreferences(ctx, currentUser.Id, preferences)
 	if err != nil {
-		return fmt.Errorf("unsaving post: %w", err)
+		return fmt.Errorf("commands: unsaving post: %w", err)
 	}
 
-	printer.PrintSuccess("Unsaved post %s", args[0])
+	printer.PrintSuccess("Unsaved post %s", arguments[0])
 	return nil
 }

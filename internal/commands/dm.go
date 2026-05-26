@@ -53,12 +53,12 @@ func init() {
 func resolveUserId(ctx context.Context, apiClient *model.Client4, username string) (string, error) {
 	user, _, err := apiClient.GetUserByUsername(ctx, username, "")
 	if err != nil {
-		return "", fmt.Errorf("user %q not found: %w", username, err)
+		return "", fmt.Errorf("commands: user %q not found: %w", username, err)
 	}
 	return user.Id, nil
 }
 
-func dmSendRun(command *cobra.Command, args []string) error {
+func dmSendRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -70,27 +70,27 @@ func dmSendRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	otherUserId, err := resolveUserId(ctx, apiClient, args[0])
+	otherUserId, err := resolveUserId(ctx, apiClient, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	channel, _, err := apiClient.CreateDirectChannel(ctx, currentUser.Id, otherUserId)
 	if err != nil {
-		return fmt.Errorf("creating DM channel: %w", err)
+		return fmt.Errorf("commands: creating DM channel: %w", err)
 	}
 
 	var message string
-	if len(args) > 1 {
-		message = strings.Join(args[1:], " ")
+	if len(arguments) > 1 {
+		message = strings.Join(arguments[1:], " ")
 	} else {
 		data, err := os.ReadFile("/dev/stdin")
 		if err != nil {
-			return fmt.Errorf("no message provided and cannot read stdin: %w", err)
+			return fmt.Errorf("commands: no message provided and cannot read stdin: %w", err)
 		}
 		message = strings.TrimRight(string(data), "\n")
 		if message == "" {
-			return fmt.Errorf("no message provided")
+			return fmt.Errorf("commands: no message provided")
 		}
 	}
 
@@ -99,7 +99,7 @@ func dmSendRun(command *cobra.Command, args []string) error {
 		Message:   message,
 	})
 	if err != nil {
-		return fmt.Errorf("sending DM: %w", err)
+		return fmt.Errorf("commands: sending DM: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -107,11 +107,11 @@ func dmSendRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Sent DM to %s", args[0])
+	printer.PrintSuccess("Sent DM to %s", arguments[0])
 	return nil
 }
 
-func dmReadRun(command *cobra.Command, args []string) error {
+func dmReadRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -123,20 +123,20 @@ func dmReadRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	otherUserId, err := resolveUserId(ctx, apiClient, args[0])
+	otherUserId, err := resolveUserId(ctx, apiClient, arguments[0])
 	if err != nil {
 		return err
 	}
 
 	channel, _, err := apiClient.CreateDirectChannel(ctx, currentUser.Id, otherUserId)
 	if err != nil {
-		return fmt.Errorf("opening DM channel: %w", err)
+		return fmt.Errorf("commands: opening DM channel: %w", err)
 	}
 
 	count, _ := command.Flags().GetInt("count")
 	postList, _, err := apiClient.GetPostsForChannel(ctx, channel.Id, 0, count, "", false, false)
 	if err != nil {
-		return fmt.Errorf("reading DMs: %w", err)
+		return fmt.Errorf("commands: reading DMs: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -154,7 +154,7 @@ func dmReadRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func dmListRun(command *cobra.Command, args []string) error {
+func dmListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -168,7 +168,7 @@ func dmListRun(command *cobra.Command, args []string) error {
 
 	channels, _, err := apiClient.GetChannelsForUserWithLastDeleteAt(ctx, currentUser.Id, 0)
 	if err != nil {
-		return fmt.Errorf("listing channels: %w", err)
+		return fmt.Errorf("commands: listing channels: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -237,7 +237,7 @@ func dmListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func dmGroupRun(command *cobra.Command, args []string) error {
+func dmGroupRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -250,13 +250,13 @@ func dmGroupRun(command *cobra.Command, args []string) error {
 	}
 
 	usernames := make([]string, 0)
-	for _, raw := range strings.Split(args[0], ",") {
+	for _, raw := range strings.Split(arguments[0], ",") {
 		if trimmed := strings.TrimSpace(raw); trimmed != "" {
 			usernames = append(usernames, trimmed)
 		}
 	}
 	if len(usernames) < 2 {
-		return fmt.Errorf("group messages require at least 2 other users (got %d); use 'mm dm send' for a single recipient", len(usernames))
+		return fmt.Errorf("commands: group messages require at least 2 other users (got %d); use 'mm dm send' for a single recipient", len(usernames))
 	}
 
 	userIds := []string{currentUser.Id}
@@ -270,16 +270,16 @@ func dmGroupRun(command *cobra.Command, args []string) error {
 
 	channel, _, err := apiClient.CreateGroupChannel(ctx, userIds)
 	if err != nil {
-		return fmt.Errorf("creating group channel: %w", err)
+		return fmt.Errorf("commands: creating group channel: %w", err)
 	}
 
-	message := strings.Join(args[1:], " ")
+	message := strings.Join(arguments[1:], " ")
 	post, _, err := apiClient.CreatePost(ctx, &model.Post{
 		ChannelId: channel.Id,
 		Message:   message,
 	})
 	if err != nil {
-		return fmt.Errorf("sending group message: %w", err)
+		return fmt.Errorf("commands: sending group message: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -287,6 +287,6 @@ func dmGroupRun(command *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Sent group message to %s", args[0])
+	printer.PrintSuccess("Sent group message to %s", arguments[0])
 	return nil
 }

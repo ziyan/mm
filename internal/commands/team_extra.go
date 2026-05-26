@@ -26,7 +26,7 @@ func init() {
 	}
 }
 
-func teamInviteRun(command *cobra.Command, args []string) error {
+func teamInviteRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -38,14 +38,14 @@ func teamInviteRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	emails := strings.Split(args[0], ",")
+	emails := strings.Split(arguments[0], ",")
 	for index := range emails {
 		emails[index] = strings.TrimSpace(emails[index])
 	}
 
 	_, err = apiClient.InviteUsersToTeam(ctx, teamId, emails)
 	if err != nil {
-		return fmt.Errorf("inviting users: %w", err)
+		return fmt.Errorf("commands: inviting users: %w", err)
 	}
 
 	printer.PrintSuccess("Invited %d user(s) to the team", len(emails))

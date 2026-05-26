@@ -66,11 +66,11 @@ func (self *Config) Save() error {
 
 func (self *Config) ActiveServer() (*ServerProfile, error) {
 	if self.ActiveProfile == "" {
-		return nil, fmt.Errorf("no active profile. Run: mm auth login")
+		return nil, fmt.Errorf("config: no active profile. Run: mm auth login")
 	}
 	profile, ok := self.Profiles[self.ActiveProfile]
 	if !ok {
-		return nil, fmt.Errorf("profile %q not found", self.ActiveProfile)
+		return nil, fmt.Errorf("config: profile %q not found", self.ActiveProfile)
 	}
 	return &profile, nil
 }

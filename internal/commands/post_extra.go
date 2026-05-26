@@ -35,18 +35,18 @@ func init() {
 	}
 }
 
-func postHistoryRun(command *cobra.Command, args []string) error {
+func postHistoryRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
 	history, _, err := apiClient.GetEditHistoryForPost(ctx, postId)
 	if err != nil {
-		return fmt.Errorf("getting edit history: %w", err)
+		return fmt.Errorf("commands: getting edit history: %w", err)
 	}
 
 	if len(history) == 0 {
@@ -73,7 +73,7 @@ func postHistoryRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func postRemindRun(command *cobra.Command, args []string) error {
+func postRemindRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -85,11 +85,11 @@ func postRemindRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	postId := normalizePostId(args[0])
+	postId := normalizePostId(arguments[0])
 
-	duration, err := time.ParseDuration(args[1])
+	duration, err := time.ParseDuration(arguments[1])
 	if err != nil {
-		return fmt.Errorf("invalid duration %q (use: 30m, 1h, 24h)", args[1])
+		return fmt.Errorf("commands: invalid duration %q (use: 30m, 1h, 24h)", arguments[1])
 	}
 
 	targetTime := time.Now().Add(duration).Unix()
@@ -100,9 +100,9 @@ func postRemindRun(command *cobra.Command, args []string) error {
 		TargetTime: targetTime,
 	})
 	if err != nil {
-		return fmt.Errorf("setting reminder: %w", err)
+		return fmt.Errorf("commands: setting reminder: %w", err)
 	}
 
-	printer.PrintSuccess("Reminder set for post %s in %s", args[0], args[1])
+	printer.PrintSuccess("Reminder set for post %s in %s", arguments[0], arguments[1])
 	return nil
 }

@@ -26,7 +26,7 @@ func init() {
 	}
 }
 
-func fileSearchRun(command *cobra.Command, args []string) error {
+func fileSearchRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -38,11 +38,11 @@ func fileSearchRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	query := args[0]
+	query := arguments[0]
 
 	results, _, err := apiClient.SearchFiles(ctx, teamId, query, false)
 	if err != nil {
-		return fmt.Errorf("searching files: %w", err)
+		return fmt.Errorf("commands: searching files: %w", err)
 	}
 
 	if printer.JSONOutput {

@@ -63,7 +63,7 @@ func init() {
 	rootCommand.AddCommand(webhookCommand)
 }
 
-func webhookListIncomingRun(command *cobra.Command, args []string) error {
+func webhookListIncomingRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -76,7 +76,7 @@ func webhookListIncomingRun(command *cobra.Command, args []string) error {
 
 	hooks, _, err := apiClient.GetIncomingWebhooksForTeam(ctx, teamId, 0, 200, "")
 	if err != nil {
-		return fmt.Errorf("listing webhooks: %w", err)
+		return fmt.Errorf("commands: listing webhooks: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -92,7 +92,7 @@ func webhookListIncomingRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func webhookListOutgoingRun(command *cobra.Command, args []string) error {
+func webhookListOutgoingRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func webhookListOutgoingRun(command *cobra.Command, args []string) error {
 
 	hooks, _, err := apiClient.GetOutgoingWebhooksForTeam(ctx, teamId, 0, 200, "")
 	if err != nil {
-		return fmt.Errorf("listing webhooks: %w", err)
+		return fmt.Errorf("commands: listing webhooks: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -121,7 +121,7 @@ func webhookListOutgoingRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func webhookCreateIncomingRun(command *cobra.Command, args []string) error {
+func webhookCreateIncomingRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -132,7 +132,7 @@ func webhookCreateIncomingRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func webhookCreateIncomingRun(command *cobra.Command, args []string) error {
 		TeamId:      teamId,
 	})
 	if err != nil {
-		return fmt.Errorf("creating webhook: %w", err)
+		return fmt.Errorf("commands: creating webhook: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -159,7 +159,7 @@ func webhookCreateIncomingRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func webhookCreateOutgoingRun(command *cobra.Command, args []string) error {
+func webhookCreateOutgoingRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -170,7 +170,7 @@ func webhookCreateOutgoingRun(command *cobra.Command, args []string) error {
 		return err
 	}
 
-	channelId, err := resolveChannelId(ctx, apiClient, teamId, args[0])
+	channelId, err := resolveChannelId(ctx, apiClient, teamId, arguments[0])
 	if err != nil {
 		return err
 	}
@@ -189,7 +189,7 @@ func webhookCreateOutgoingRun(command *cobra.Command, args []string) error {
 		CallbackURLs: callbackUrls,
 	})
 	if err != nil {
-		return fmt.Errorf("creating webhook: %w", err)
+		return fmt.Errorf("commands: creating webhook: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -201,7 +201,7 @@ func webhookCreateOutgoingRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func webhookDeleteRun(command *cobra.Command, args []string) error {
+func webhookDeleteRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -211,14 +211,14 @@ func webhookDeleteRun(command *cobra.Command, args []string) error {
 	outgoing, _ := command.Flags().GetBool("outgoing")
 
 	if outgoing {
-		_, err = apiClient.DeleteOutgoingWebhook(ctx, args[0])
+		_, err = apiClient.DeleteOutgoingWebhook(ctx, arguments[0])
 	} else {
-		_, err = apiClient.DeleteIncomingWebhook(ctx, args[0])
+		_, err = apiClient.DeleteIncomingWebhook(ctx, arguments[0])
 	}
 	if err != nil {
-		return fmt.Errorf("deleting webhook: %w", err)
+		return fmt.Errorf("commands: deleting webhook: %w", err)
 	}
 
-	printer.PrintSuccess("Deleted webhook %s", args[0])
+	printer.PrintSuccess("Deleted webhook %s", arguments[0])
 	return nil
 }

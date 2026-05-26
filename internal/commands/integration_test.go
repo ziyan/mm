@@ -50,7 +50,7 @@ func skipIntegration(t *testing.T) {
 }
 
 // runCommand executes a CLI command in-process and returns the captured stdout.
-func runCommand(args ...string) (string, error) {
+func runCommand(arguments ...string) (string, error) {
 	var buf bytes.Buffer
 	printer.Stdout = &buf
 	// Reset persistent flags to prevent state bleed between calls
@@ -59,14 +59,14 @@ func runCommand(args ...string) (string, error) {
 	_ = rootCommand.PersistentFlags().Set("token", "")
 	_ = rootCommand.PersistentFlags().Set("server", "")
 	_ = rootCommand.PersistentFlags().Set("team", "")
-	rootCommand.SetArgs(args)
+	rootCommand.SetArgs(arguments)
 	err := rootCommand.Execute()
 	return buf.String(), err
 }
 
 // runCommandJSON executes a CLI command with --json and parses the output.
-func runCommandJSON(args ...string) (interface{}, string, error) {
-	output, err := runCommand(append([]string{"--json"}, args...)...)
+func runCommandJSON(arguments ...string) (interface{}, string, error) {
+	output, err := runCommand(append([]string{"--json"}, arguments...)...)
 	if err != nil {
 		return nil, output, err
 	}

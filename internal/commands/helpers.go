@@ -139,12 +139,12 @@ func resolveTeamId(ctx context.Context, command *cobra.Command, apiClient *model
 	if teamOverride != "" {
 		team, _, err := apiClient.GetTeamByName(ctx, teamOverride, "")
 		if err != nil {
-			return "", fmt.Errorf("team %q not found: %w", teamOverride, err)
+			return "", fmt.Errorf("commands: team %q not found: %w", teamOverride, err)
 		}
 		return team.Id, nil
 	}
 	if server.TeamID != "" {
 		return server.TeamID, nil
 	}
-	return "", fmt.Errorf("no active team set. Use --team <name> or run: mm team switch <name>")
+	return "", fmt.Errorf("commands: no active team set. Use --team <name> or run: mm team switch <name>")
 }

@@ -23,16 +23,16 @@ func PrintJSON(value interface{}) {
 	_ = encoder.Encode(value)
 }
 
-func PrintError(message string, args ...interface{}) {
-	_, _ = fmt.Fprintf(Stderr, color.RedString("Error: ")+message+"\n", args...)
+func PrintError(message string, arguments ...interface{}) {
+	_, _ = fmt.Fprintf(Stderr, color.RedString("Error: ")+message+"\n", arguments...)
 }
 
-func PrintSuccess(message string, args ...interface{}) {
-	_, _ = fmt.Fprintf(Stdout, color.GreenString("✓ ")+message+"\n", args...)
+func PrintSuccess(message string, arguments ...interface{}) {
+	_, _ = fmt.Fprintf(Stdout, color.GreenString("✓ ")+message+"\n", arguments...)
 }
 
-func PrintInfo(message string, args ...interface{}) {
-	_, _ = fmt.Fprintf(Stdout, message+"\n", args...)
+func PrintInfo(message string, arguments ...interface{}) {
+	_, _ = fmt.Fprintf(Stdout, message+"\n", arguments...)
 }
 
 func PrintTable(headers []string, rows [][]string) {

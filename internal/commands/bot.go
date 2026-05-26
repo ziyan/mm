@@ -56,7 +56,7 @@ func init() {
 	rootCommand.AddCommand(botCommand)
 }
 
-func botListRun(command *cobra.Command, args []string) error {
+func botListRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -65,7 +65,7 @@ func botListRun(command *cobra.Command, args []string) error {
 
 	bots, _, err := apiClient.GetBots(ctx, 0, 200, "")
 	if err != nil {
-		return fmt.Errorf("listing bots: %w", err)
+		return fmt.Errorf("commands: listing bots: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -81,7 +81,7 @@ func botListRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func botCreateRun(command *cobra.Command, args []string) error {
+func botCreateRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -92,16 +92,16 @@ func botCreateRun(command *cobra.Command, args []string) error {
 	description, _ := command.Flags().GetString("description")
 
 	if displayName == "" {
-		displayName = args[0]
+		displayName = arguments[0]
 	}
 
 	bot, _, err := apiClient.CreateBot(ctx, &model.Bot{
-		Username:    args[0],
+		Username:    arguments[0],
 		DisplayName: displayName,
 		Description: description,
 	})
 	if err != nil {
-		return fmt.Errorf("creating bot: %w", err)
+		return fmt.Errorf("commands: creating bot: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -113,16 +113,16 @@ func botCreateRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func botInfoRun(command *cobra.Command, args []string) error {
+func botInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	bot, _, err := apiClient.GetBot(ctx, args[0], "")
+	bot, _, err := apiClient.GetBot(ctx, arguments[0], "")
 	if err != nil {
-		return fmt.Errorf("bot not found: %w", err)
+		return fmt.Errorf("commands: bot not found: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -139,34 +139,34 @@ func botInfoRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func botDisableRun(command *cobra.Command, args []string) error {
+func botDisableRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	_, _, err = apiClient.DisableBot(ctx, args[0])
+	_, _, err = apiClient.DisableBot(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("disabling bot: %w", err)
+		return fmt.Errorf("commands: disabling bot: %w", err)
 	}
 
-	printer.PrintSuccess("Disabled bot %s", args[0])
+	printer.PrintSuccess("Disabled bot %s", arguments[0])
 	return nil
 }
 
-func botEnableRun(command *cobra.Command, args []string) error {
+func botEnableRun(command *cobra.Command, arguments []string) error {
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	_, _, err = apiClient.EnableBot(ctx, args[0])
+	_, _, err = apiClient.EnableBot(ctx, arguments[0])
 	if err != nil {
-		return fmt.Errorf("enabling bot: %w", err)
+		return fmt.Errorf("commands: enabling bot: %w", err)
 	}
 
-	printer.PrintSuccess("Enabled bot %s", args[0])
+	printer.PrintSuccess("Enabled bot %s", arguments[0])
 	return nil
 }

@@ -32,7 +32,7 @@ func init() {
 	rootCommand.AddCommand(serverCommand)
 }
 
-func serverPingRun(command *cobra.Command, args []string) error {
+func serverPingRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -41,7 +41,7 @@ func serverPingRun(command *cobra.Command, args []string) error {
 
 	status, _, err := apiClient.GetPingWithFullServerStatus(ctx)
 	if err != nil {
-		return fmt.Errorf("server unreachable: %w", err)
+		return fmt.Errorf("commands: server unreachable: %w", err)
 	}
 
 	if printer.JSONOutput {
@@ -56,7 +56,7 @@ func serverPingRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
-func serverInfoRun(command *cobra.Command, args []string) error {
+func serverInfoRun(command *cobra.Command, arguments []string) error {
 	apiClient, server, err := client.New()
 	if err != nil {
 		return err
@@ -65,12 +65,12 @@ func serverInfoRun(command *cobra.Command, args []string) error {
 
 	response, err := apiClient.DoAPIGet(ctx, "/config/client?format=old", "")
 	if err != nil {
-		return fmt.Errorf("getting server info: %w", err)
+		return fmt.Errorf("commands: getting server info: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	var clientConfig map[string]string
 	if err := json.NewDecoder(response.Body).Decode(&clientConfig); err != nil {
-		return fmt.Errorf("parsing server info: %w", err)
+		return fmt.Errorf("commands: parsing server info: %w", err)
 	}
 
 	if printer.JSONOutput {
