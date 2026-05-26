@@ -205,3 +205,20 @@ Run `make lint` before submitting a PR.
 - Use imperative mood: "Add feature" not "Added feature"
 - First line: concise summary (under 72 characters)
 - Body: explain what and why, not how
+
+## Releases
+
+Releases are driven automatically by the **Auto Release** workflow on every push to `main`. The changelog source is each PR's description, not `CHANGELOG.md`.
+
+Every PR description must include a `## Changelog` block — the template at `.github/pull_request_template.md` provides the scaffold. Pick exactly one section heading and write one bullet:
+
+| Section heading | Bump |
+|-----------------|------|
+| `### Added` / `### Changed` / `### Removed` / `### Deprecated` | minor |
+| `### Fixed` / `### Security` | patch |
+
+The **Changelog Guard** workflow rejects any PR whose description's `## Changelog` block is still the template placeholder. Apply the `skip-changelog` label to bypass for CI tweaks, docs typos, or internal-only refactors.
+
+After merge, the bot enumerates PRs since the last tag, extracts each `## Changelog` block, composes a new `## [X.Y.Z]` section in `CHANGELOG.md`, commits as `chore(release): X.Y.Z`, and pushes the tag — which triggers the existing **Release** workflow to build cross-platform binaries and publish a GitHub release with the same notes.
+
+Major releases are manual: run the **Major Release** workflow from the Actions tab and type `MAJOR` into the confirmation input.
