@@ -56,7 +56,7 @@ func slashExecuteRun(command *cobra.Command, args []string) error {
 		commandText = "/" + commandText
 	}
 
-	result, _, err := apiClient.ExecuteCommand(ctx, channelId, commandText)
+	result, _, err := apiClient.ExecuteCommandWithTeam(ctx, channelId, teamId, commandText)
 	if err != nil {
 		return fmt.Errorf("executing command: %w", err)
 	}
