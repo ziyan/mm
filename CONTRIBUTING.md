@@ -205,3 +205,18 @@ Run `make lint` before submitting a PR.
 - Use imperative mood: "Add feature" not "Added feature"
 - First line: concise summary (under 72 characters)
 - Body: explain what and why, not how
+
+## Releases
+
+Releases are driven automatically by the **Auto Release** workflow on every push to `main`. Each PR is expected to add a bullet under `## [Unreleased]` in `CHANGELOG.md`; the bullet's section determines the bump:
+
+| Section | Bump |
+|---------|------|
+| `### Added` / `### Changed` / `### Removed` / `### Deprecated` | minor |
+| `### Fixed` / `### Security` | patch |
+
+After merge, the bot moves the Unreleased entries into a dated `## [X.Y.Z]` section, commits as `chore(release): X.Y.Z`, and pushes the tag — which triggers the existing **Release** workflow to build cross-platform binaries and publish a GitHub release.
+
+Major releases are manual: run the **Major Release** workflow from the Actions tab and type `MAJOR` into the confirmation input.
+
+If a PR has no observable change (CI tweaks, internal refactors, docs typos), apply the `skip-changelog` label to bypass the changelog guard.

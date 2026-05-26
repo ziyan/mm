@@ -4,7 +4,11 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
-## Unreleased
+## [Unreleased]
+
+### Changed
+
+- CI: enable the auto-release bot. On every push to `main` the bot inspects `## [Unreleased]`; bullets under `Added`/`Changed`/`Removed`/`Deprecated` trigger a minor bump, bullets under `Fixed`/`Security` trigger a patch bump. Major releases run via the `Major Release` workflow with a `MAJOR` confirmation input. A `Changelog Guard` workflow blocks any PR that doesn't update `## [Unreleased]` (override with the `skip-changelog` label).
 
 ### Added
 
