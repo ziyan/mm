@@ -4,6 +4,12 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [Unreleased]
+
+### Added
+
+- `mm archive`, a local archive of the channels you can read. `mm archive sync <dir>` fetches posts and attachments into a plain-file layout, incrementally: `state.json` holds a per-channel high-water mark and later runs ask the server only for what is newer. `--channels public` reaches public channels you have left, and channels archived while you were a member are included. `mm archive search <dir> <query>` searches it offline with channel, user, date and regex filters, printing a permalink for each match. `mm archive status <dir>` says what the archive holds.
+
 ## [0.5.0] - 2026-05-26
 
 ### Changed

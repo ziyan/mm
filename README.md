@@ -18,6 +18,7 @@ A full-featured command-line client for [Mattermost](https://mattermost.com).
 - **User operations**: status, avatar, typing indicator, autocomplete
 - **Session and access token management**
 - **Custom emoji, webhooks, bots, groups, slash commands, plugins**
+- **Local archive** of every channel you can read, synced incrementally and searchable offline
 - **JSON output** (`--json`) for scripting and piping
 - **Shell completion** for bash, zsh, fish, and PowerShell
 - **Static binary** with zero CGO dependencies
@@ -232,6 +233,52 @@ mm file info <file-id>                         # show file info
 mm file search <query>                         # search files
 ```
 
+### Archive
+
+Keep a local copy of the channels you can read, and search it without going back
+to the server. A sync is incremental: the first run of a channel reads it in
+full, later runs ask only for posts newer than the last one archived, so
+re-running is cheap and safe.
+
+```bash
+mm archive sync ~/mattermost-archive              # fetch what is new
+mm archive sync ~/mattermost-archive --channels all   # public channels too, not only yours
+mm archive sync ~/mattermost-archive --files mine     # also download your own attachments
+mm archive sync ~/mattermost-archive --only backend   # just the channels whose name matches
+mm archive sync ~/mattermost-archive --full           # ignore the high-water marks, re-read everything
+
+mm archive status ~/mattermost-archive            # what the archive holds
+mm archive search ~/mattermost-archive "deadlock" # search it offline
+mm archive search ~/mattermost-archive "timeout" -c backend -u alice --since 2026-01-01
+mm archive search ~/mattermost-archive "c.t sat" --regex --limit 10
+mm archive search ~/mattermost-archive "deadlock" --json
+```
+
+Each match prints when and where it was written, who wrote it, and a permalink
+back to the thread, which is what makes it useful to paste into a conversation.
+
+The layout under the archive directory is plain files, so anything can read it:
+
+```
+channels.json                  every channel seen, with its team, type and delete_at
+users.json                     every user seen, so a search can print names offline
+me.json                        the authenticated user
+state.json                     per-channel high-water mark, for the next sync
+posts/<team>/<channel>.jsonl   one post per line, oldest first, as the server sent it
+files.jsonl                    one record per attachment referenced by an archived post
+files/<fileId>__<name>         attachment contents
+```
+
+Posts are stored exactly as the server sent them rather than re-encoded, so a
+field this version of `mm` does not know about is still there for a later one.
+
+Two notes on what a sync can and cannot reach. Channels archived while you were
+a member are included; they are invisible to the ordinary channel listing and
+need `include_deleted`, which the sync passes. Public channels you have **left**
+are reachable with `--channels public`, because a public channel can be read
+without joining it. Private channels you have left are gone: reading one
+requires membership, and the membership row is deleted with it.
+
 ### Bookmarks
 
 ```bash
@@ -396,6 +443,7 @@ The following Mattermost REST API (v4) endpoint groups are fully supported:
 | **Access tokens** | `auth` | Create, list, revoke personal access tokens |
 | **Server** | `server` | Ping with status, client config/server info |
 | **WebSocket** | `notify` | Real-time event streaming with event type and channel filters |
+| **Archive** | `archive` | Incremental local archive of posts and attachments, offline search, status |
 | **Authentication** | `auth` | Login (token or password), multi-profile management |
 
 ### Not supported
