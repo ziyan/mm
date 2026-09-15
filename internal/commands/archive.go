@@ -47,6 +47,7 @@ func init() {
 	syncCommand.Flags().Bool("skip-posts", false, "Go straight to attachments, using the posts already archived")
 	syncCommand.Flags().String("only", "", "Only channels whose name contains this substring")
 	syncCommand.Flags().Bool("full", false, "Ignore the high-water marks and re-read every channel from the start")
+	syncCommand.Flags().String("since", "", "Re-read every channel back to this date (YYYY-MM-DD) and merge, to fill gaps an earlier sync left")
 
 	searchCommand := &cobra.Command{
 		Use:   "search <directory> <query>",
@@ -123,6 +124,11 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	shouldSkipPosts, _ := command.Flags().GetBool("skip-posts")
 	onlySubstring, _ := command.Flags().GetString("only")
 	isFullSync, _ := command.Flags().GetBool("full")
+	repairSinceText, _ := command.Flags().GetString("since")
+	repairSince, err := parseSearchDate(repairSinceText, false)
+	if err != nil {
+		return err
+	}
 
 	if channelScope != "mine" && channelScope != "public" && channelScope != "all" {
 		return fmt.Errorf("commands: --channels must be mine, public, or all")
@@ -153,7 +159,7 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	printer.PrintInfo("%d channels to consider", len(channels))
 
 	if !shouldSkipPosts {
-		if err := archiveSyncPosts(ctx, apiClient, store, channels, isFullSync); err != nil {
+		if err := archiveSyncPosts(ctx, apiClient, store, channels, isFullSync, repairSince); err != nil {
 			return err
 		}
 	}
@@ -261,7 +267,7 @@ func archiveAddTeamName(raw json.RawMessage, teamName string) (json.RawMessage, 
 	return merged, nil
 }
 
-func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, isFullSync bool) error {
+func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, isFullSync bool, repairSince int64) error {
 	state, err := store.LoadState()
 	if err != nil {
 		return err
@@ -277,11 +283,34 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 			since = previous.LastCreateAt
 		}
 
-		collected, err := archiveReadChannel(ctx, apiClient, channel.ID, since)
+		// A repair reads back past the mark, so it has to merge with what is
+		// already on disk rather than append to it.
+		readFrom := since
+		isRepair := repairSince > 0 && (since == 0 || repairSince < since)
+		if isRepair {
+			readFrom = repairSince
+		}
+
+		collected, err := archiveReadChannel(ctx, apiClient, channel.ID, readFrom)
 		if err != nil {
 			printer.PrintInfo("  cannot read %s/%s: %v", channel.TeamName, channel.Name, err)
 			unreadableCount++
 			continue
+		}
+
+		alreadyArchived := map[string]struct{}{}
+		if isRepair {
+			lines, err := store.ReadChannelPosts(channel.TeamName, channel.Name)
+			if err != nil {
+				return err
+			}
+			for _, line := range lines {
+				header := &postHeader{}
+				if err := json.Unmarshal(line, header); err != nil {
+					return fmt.Errorf("commands: parsing an archived post: %w", err)
+				}
+				alreadyArchived[header.ID] = struct{}{}
+			}
 		}
 
 		var fresh []*archivedPost
@@ -290,7 +319,10 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 			if err := json.Unmarshal(raw, header); err != nil {
 				return fmt.Errorf("commands: parsing post: %w", err)
 			}
-			if header.CreateAt <= since {
+			if header.CreateAt <= readFrom {
+				continue
+			}
+			if _, isKnown := alreadyArchived[header.ID]; isKnown {
 				continue
 			}
 			fresh = append(fresh, &archivedPost{header: header, raw: raw})
@@ -318,14 +350,22 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 					})
 				}
 			}
-			// A channel read from the beginning replaces its file. Appending
-			// would put a second copy of every post after the first.
-			write := store.AppendPosts
-			if since == 0 {
-				write = store.ReplacePosts
-			}
-			if err := write(channel.TeamName, channel.Name, lines); err != nil {
-				return err
+			switch {
+			case isRepair:
+				// Merge: what is on disk plus what was missing, in order.
+				if err := archiveMergePosts(store, channel, lines); err != nil {
+					return err
+				}
+			case since == 0:
+				// A channel read from the beginning replaces its file.
+				// Appending would put a second copy of every post after the first.
+				if err := store.ReplacePosts(channel.TeamName, channel.Name, lines); err != nil {
+					return err
+				}
+			default:
+				if err := store.AppendPosts(channel.TeamName, channel.Name, lines); err != nil {
+					return err
+				}
 			}
 			if err := store.AppendFiles(records); err != nil {
 				return err
@@ -441,6 +481,38 @@ func archiveChannelHasNewPosts(ctx context.Context, apiClient *model.Client4, ch
 		}
 	}
 	return false, nil
+}
+
+// archiveMergePosts rewrites one channel's file as everything already archived
+// plus the posts a repair recovered, oldest first. Rewriting rather than
+// appending is what keeps the file in order, and merging rather than replacing
+// is what keeps posts the server will no longer hand out, such as deleted ones
+// an earlier sync caught while they were still there.
+func archiveMergePosts(store *archive.Store, channel *archiveChannel, recovered []json.RawMessage) error {
+	existing, err := store.ReadChannelPosts(channel.TeamName, channel.Name)
+	if err != nil {
+		return err
+	}
+
+	merged := make([]*archivedPost, 0, len(existing)+len(recovered))
+	for _, group := range [][]json.RawMessage{existing, recovered} {
+		for _, raw := range group {
+			header := &postHeader{}
+			if err := json.Unmarshal(raw, header); err != nil {
+				return fmt.Errorf("commands: parsing a post to merge: %w", err)
+			}
+			merged = append(merged, &archivedPost{header: header, raw: raw})
+		}
+	}
+	sort.SliceStable(merged, func(first, second int) bool {
+		return merged[first].header.CreateAt < merged[second].header.CreateAt
+	})
+
+	lines := make([]json.RawMessage, 0, len(merged))
+	for _, post := range merged {
+		lines = append(lines, post.raw)
+	}
+	return store.ReplacePosts(channel.TeamName, channel.Name, lines)
 }
 
 func archiveGetPosts(ctx context.Context, apiClient *model.Client4, path string) (*rawPostList, error) {

@@ -238,6 +238,107 @@ func TestIntegrationArchiveCatchesUpPastTheSinceCap(t *testing.T) {
 	}
 }
 
+// TestIntegrationArchiveRepairFillsAGap checks that --since recovers posts an
+// earlier sync never archived, without disturbing what is already on disk.
+func TestIntegrationArchiveRepairFillsAGap(t *testing.T) {
+	skipIntegration(t)
+
+	channelName := fmt.Sprintf("int-archive-repair-%d", time.Now().UnixNano())
+	if output, err := runCommand("channel", "create", channelName, "--display-name", "Integration Archive Repair"); err != nil {
+		t.Fatalf("channel create failed: %v\n%s", err, output)
+	}
+	for index := 0; index < 6; index++ {
+		if output, err := runCommand("post", "create", channelName, fmt.Sprintf("message %d", index)); err != nil {
+			t.Fatalf("post create failed: %v\n%s", err, output)
+		}
+	}
+
+	directory := t.TempDir()
+	if output, err := runCommand("archive", "sync", directory, "--since", "", "--only", channelName); err != nil {
+		t.Fatalf("archive sync failed: %v\n%s", err, output)
+	}
+
+	// Cut two posts out of the middle, the shape an earlier sync's gap leaves.
+	postsPath := ""
+	teams, err := os.ReadDir(filepath.Join(directory, "posts"))
+	if err != nil {
+		t.Fatalf("reading the posts directory: %v", err)
+	}
+	for _, team := range teams {
+		candidate := filepath.Join(directory, "posts", team.Name(), channelName+".jsonl")
+		if _, err := os.Stat(candidate); err == nil {
+			postsPath = candidate
+		}
+	}
+	if postsPath == "" {
+		t.Fatalf("no archived file for %s", channelName)
+	}
+	content, err := os.ReadFile(postsPath)
+	if err != nil {
+		t.Fatalf("reading the archived posts: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	if len(lines) < 5 {
+		t.Fatalf("expected at least 5 archived lines, got %d", len(lines))
+	}
+	kept := append(append([]string{}, lines[:2]...), lines[4:]...)
+	removed := len(lines) - len(kept)
+	if err := os.WriteFile(postsPath, []byte(strings.Join(kept, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("writing the shortened archive: %v", err)
+	}
+
+	// A plain sync cannot see a gap behind its own mark.
+	output, err := runCommand("archive", "sync", directory, "--since", "", "--only", channelName)
+	if err != nil {
+		t.Fatalf("archive sync failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "0 new posts") {
+		t.Errorf("a plain sync should not have reached behind its mark, got: %s", output)
+	}
+
+	// A repair does.
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	output, err = runCommand("archive", "sync", directory, "--only", channelName, "--since", yesterday)
+	if err != nil {
+		t.Fatalf("archive repair failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, fmt.Sprintf("%d new posts", removed)) {
+		t.Errorf("expected the repair to recover %d posts, got: %s", removed, output)
+	}
+
+	content, err = os.ReadFile(postsPath)
+	if err != nil {
+		t.Fatalf("reading the repaired archive: %v", err)
+	}
+	seen := map[string]int{}
+	var stamps []int64
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		post := struct {
+			ID       string `json:"id"`
+			CreateAt int64  `json:"create_at"`
+		}{}
+		if err := json.Unmarshal([]byte(line), &post); err != nil {
+			t.Fatalf("parsing a repaired line: %v", err)
+		}
+		seen[post.ID]++
+		stamps = append(stamps, post.CreateAt)
+	}
+	if len(seen) != len(lines) {
+		t.Errorf("expected %d posts after the repair, got %d", len(lines), len(seen))
+	}
+	for postId, count := range seen {
+		if count > 1 {
+			t.Errorf("post %s appears %d times after the repair", postId, count)
+		}
+	}
+	for index := 1; index < len(stamps); index++ {
+		if stamps[index-1] > stamps[index] {
+			t.Errorf("the repaired file is out of creation order at line %d", index)
+			break
+		}
+	}
+}
+
 // TestIntegrationArchiveSyncKeepsUnseenChannels checks that a sync narrowed
 // with --only does not drop the other channels from channels.json.
 func TestIntegrationArchiveSyncKeepsUnseenChannels(t *testing.T) {

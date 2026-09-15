@@ -306,6 +306,27 @@ func (self *Store) AppendFiles(records []*ArchivedFile) error {
 	return nil
 }
 
+// ReadChannelPosts reads one channel's archived posts back, oldest first. A
+// missing file yields nothing, which is what a channel never synced looks like.
+func (self *Store) ReadChannelPosts(teamName, channelName string) ([]json.RawMessage, error) {
+	path := self.PostsPath(teamName, channelName)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("archive: reading %s: %w", path, err)
+	}
+	var lines []json.RawMessage
+	err := ReadPosts(path, func(line []byte) bool {
+		lines = append(lines, append(json.RawMessage(nil), line...))
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
 // ReferencedFileIDs reads every attachment id the archived posts mention.
 func (self *Store) ReferencedFileIDs() (map[string]struct{}, error) {
 	fileIds := map[string]struct{}{}

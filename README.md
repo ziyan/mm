@@ -246,6 +246,7 @@ mm archive sync ~/mattermost-archive --channels all   # public channels too, not
 mm archive sync ~/mattermost-archive --files mine     # also download your own attachments
 mm archive sync ~/mattermost-archive --only backend   # just the channels whose name matches
 mm archive sync ~/mattermost-archive --full           # ignore the high-water marks, re-read everything
+mm archive sync ~/mattermost-archive --since 2026-08-01  # re-read back to a date and merge, to fill a gap
 
 mm archive status ~/mattermost-archive            # what the archive holds
 mm archive search ~/mattermost-archive "deadlock" # search it offline
@@ -280,6 +281,11 @@ newest post it returns can sit far ahead of posts it never carried, and a mark
 advanced to that value steps over them for good. `since` is still asked first,
 as a cheap question of whether a channel has anything new at all, because a post
 written after the mark was also updated after it.
+
+`--since` is the repair: it re-reads every channel back to the date given and
+merges what it finds with what is on disk, keeping both, so a gap an older sync
+left is filled without disturbing anything already archived. An ordinary sync
+cannot do this, because it never looks behind its own high-water mark.
 
 Deleted posts are the one thing a sync does not archive. Paging omits them, and
 `include_deleted` needs system admin, so a post deleted after it was written is
