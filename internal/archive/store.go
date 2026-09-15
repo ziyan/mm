@@ -248,11 +248,22 @@ func (self *Store) LoadMe() (*model.User, error) {
 
 // AppendPosts adds raw post JSON to one channel's file, oldest first.
 func (self *Store) AppendPosts(teamName, channelName string, lines []json.RawMessage) error {
+	return self.writePosts(teamName, channelName, lines, os.O_APPEND)
+}
+
+// ReplacePosts writes one channel's file from scratch. A sync that re-reads a
+// channel from the beginning must not leave the previous copy in front of the
+// new one.
+func (self *Store) ReplacePosts(teamName, channelName string, lines []json.RawMessage) error {
+	return self.writePosts(teamName, channelName, lines, os.O_TRUNC)
+}
+
+func (self *Store) writePosts(teamName, channelName string, lines []json.RawMessage, mode int) error {
 	path := self.PostsPath(teamName, channelName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("archive: creating %s: %w", filepath.Dir(path), err)
 	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(path, mode|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("archive: opening %s: %w", path, err)
 	}

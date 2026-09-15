@@ -166,6 +166,78 @@ func TestIntegrationArchiveSearchFilters(t *testing.T) {
 	}
 }
 
+// TestIntegrationArchiveCatchesUpPastTheSinceCap checks that a channel further
+// behind than one since response catches up in a single sync. The since
+// endpoint caps its response at about a thousand posts and orders it by update
+// time, so a sync built on it walks forward a capped batch at a time and steps
+// over posts it never saw.
+func TestIntegrationArchiveCatchesUpPastTheSinceCap(t *testing.T) {
+	skipIntegration(t)
+
+	channelName := fmt.Sprintf("int-archive-pages-%d", time.Now().UnixNano())
+	if output, err := runCommand("channel", "create", channelName, "--display-name", "Integration Archive Pages"); err != nil {
+		t.Fatalf("channel create failed: %v\n%s", err, output)
+	}
+
+	directory := t.TempDir()
+	if output, err := runCommand("archive", "sync", directory, "--only", channelName); err != nil {
+		t.Fatalf("archive sync failed: %v\n%s", err, output)
+	}
+
+	// Past the cap the since endpoint puts on one response, so a sync built on
+	// that endpoint stops short here and reports a round number instead.
+	const postCount = 1050
+	for index := 0; index < postCount; index++ {
+		if output, err := runCommand("post", "create", channelName, fmt.Sprintf("message %d", index)); err != nil {
+			t.Fatalf("post create failed: %v\n%s", err, output)
+		}
+	}
+
+	output, err := runCommand("archive", "sync", directory, "--only", channelName)
+	if err != nil {
+		t.Fatalf("archive sync failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, fmt.Sprintf("%d new posts", postCount)) {
+		t.Errorf("expected all %d posts in one sync, got: %s", postCount, output)
+	}
+
+	// Every one of them is searchable, none archived twice.
+	seen := map[string]int{}
+	channelFiles, err := os.ReadDir(filepath.Join(directory, "posts"))
+	if err != nil {
+		t.Fatalf("reading the posts directory: %v", err)
+	}
+	for _, teamDirectory := range channelFiles {
+		path := filepath.Join(directory, "posts", teamDirectory.Name(), channelName+".jsonl")
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+			post := struct {
+				ID string `json:"id"`
+			}{}
+			if err := json.Unmarshal([]byte(line), &post); err != nil {
+				t.Fatalf("parsing an archived line: %v", err)
+			}
+			seen[post.ID]++
+		}
+	}
+	for postId, count := range seen {
+		if count > 1 {
+			t.Errorf("post %s archived %d times", postId, count)
+		}
+	}
+
+	output, err = runCommand("archive", "sync", directory, "--only", channelName)
+	if err != nil {
+		t.Fatalf("archive sync failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "0 new posts") {
+		t.Errorf("expected the sync after a catch up to add nothing, got: %s", output)
+	}
+}
+
 // TestIntegrationArchiveSyncKeepsUnseenChannels checks that a sync narrowed
 // with --only does not drop the other channels from channels.json.
 func TestIntegrationArchiveSyncKeepsUnseenChannels(t *testing.T) {

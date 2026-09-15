@@ -318,7 +318,13 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 					})
 				}
 			}
-			if err := store.AppendPosts(channel.TeamName, channel.Name, lines); err != nil {
+			// A channel read from the beginning replaces its file. Appending
+			// would put a second copy of every post after the first.
+			write := store.AppendPosts
+			if since == 0 {
+				write = store.ReplacePosts
+			}
+			if err := write(channel.TeamName, channel.Name, lines); err != nil {
 				return err
 			}
 			if err := store.AppendFiles(records); err != nil {
@@ -348,43 +354,105 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 	return nil
 }
 
-// archiveReadChannel returns the posts of one channel. With a high-water mark
-// the server returns everything newer in one response; without one the channel
-// has to be paged from the start.
-func archiveReadChannel(ctx context.Context, apiClient *model.Client4, channelId string, since int64) ([]json.RawMessage, error) {
-	var collected []json.RawMessage
+// archiveReadChannel returns the posts of one channel newer than the mark,
+// keyed by post id so a post returned twice is stored once.
+//
+// It asks two different questions of the server, because neither endpoint
+// answers both well. The since endpoint says cheaply whether a channel has
+// anything new, but it cannot enumerate: its response is capped at about a
+// thousand posts and ordered by when a post was last updated rather than when
+// it was written, so the newest post it returns can sit far ahead of posts it
+// never carried, and a mark walked forward by that value steps over them for
+// good. Paging enumerates completely, running newest first in creation order,
+// so reading until a page reaches the mark misses nothing, but it costs a page
+// of posts for every channel whether or not anything happened in it.
+//
+// So: ask since whether there is anything to do, and page when there is. A
+// post written after the mark always has an update time after the mark too, so
+// since never says no when the answer is yes.
+//
+// Deleted posts are the one thing this does not archive. Paging omits them and
+// include_deleted needs system admin, so a post deleted after it was written is
+// kept only if a sync saw it while it was still there.
+func archiveReadChannel(ctx context.Context, apiClient *model.Client4, channelId string, since int64) (map[string]json.RawMessage, error) {
 	if since > 0 {
-		body, err := archiveGet(ctx, apiClient, fmt.Sprintf("/channels/%s/posts?since=%d", channelId, since))
+		hasNew, err := archiveChannelHasNewPosts(ctx, apiClient, channelId, since)
 		if err != nil {
 			return nil, err
 		}
-		list := &rawPostList{}
-		if err := json.Unmarshal(body, list); err != nil {
-			return nil, fmt.Errorf("commands: parsing posts: %w", err)
+		if !hasNew {
+			return nil, nil
 		}
-		for _, raw := range list.Posts {
-			collected = append(collected, raw)
-		}
-		return collected, nil
 	}
 
+	collected := map[string]json.RawMessage{}
 	for page := 0; ; page++ {
-		body, err := archiveGet(ctx, apiClient,
+		list, err := archiveGetPosts(ctx, apiClient,
 			fmt.Sprintf("/channels/%s/posts?page=%d&per_page=%d", channelId, page, archivePageSize))
 		if err != nil {
 			return nil, err
 		}
-		list := &rawPostList{}
-		if err := json.Unmarshal(body, list); err != nil {
-			return nil, fmt.Errorf("commands: parsing posts: %w", err)
+		for postId, raw := range list.Posts {
+			collected[postId] = raw
 		}
-		for _, raw := range list.Posts {
-			collected = append(collected, raw)
-		}
+
 		if len(list.Order) < archivePageSize {
-			return collected, nil
+			return collected, nil // the start of the channel
+		}
+
+		// How far back this page reached is read off its own order. The posts
+		// map also carries the thread root of any reply on the page, and one of
+		// those can be years older than anything the page itself holds.
+		oldestInPage := int64(0)
+		for _, postId := range list.Order {
+			raw, isPresent := list.Posts[postId]
+			if !isPresent {
+				continue
+			}
+			header := &postHeader{}
+			if err := json.Unmarshal(raw, header); err != nil {
+				return nil, fmt.Errorf("commands: parsing post: %w", err)
+			}
+			if oldestInPage == 0 || header.CreateAt < oldestInPage {
+				oldestInPage = header.CreateAt
+			}
+		}
+		if since > 0 && oldestInPage <= since {
+			return collected, nil // back as far as what is already archived
 		}
 	}
+}
+
+// archiveChannelHasNewPosts reports whether anything was written in a channel
+// after the mark. One request, and for a quiet channel it is the only one.
+func archiveChannelHasNewPosts(ctx context.Context, apiClient *model.Client4, channelId string, since int64) (bool, error) {
+	list, err := archiveGetPosts(ctx, apiClient,
+		fmt.Sprintf("/channels/%s/posts?since=%d", channelId, since))
+	if err != nil {
+		return false, err
+	}
+	for _, raw := range list.Posts {
+		header := &postHeader{}
+		if err := json.Unmarshal(raw, header); err != nil {
+			return false, fmt.Errorf("commands: parsing post: %w", err)
+		}
+		if header.CreateAt > since {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func archiveGetPosts(ctx context.Context, apiClient *model.Client4, path string) (*rawPostList, error) {
+	body, err := archiveGet(ctx, apiClient, path)
+	if err != nil {
+		return nil, err
+	}
+	list := &rawPostList{}
+	if err := json.Unmarshal(body, list); err != nil {
+		return nil, fmt.Errorf("commands: parsing posts: %w", err)
+	}
+	return list, nil
 }
 
 func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *archive.Store) error {

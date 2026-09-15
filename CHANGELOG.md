@@ -10,6 +10,8 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 - `mm archive`, a local archive of the channels you can read. `mm archive sync <dir>` fetches posts and attachments into a plain-file layout, incrementally: `state.json` holds a per-channel high-water mark and later runs ask the server only for what is newer. `--channels public` reaches public channels you have left, and channels archived while you were a member are included. `mm archive search <dir> <query>` searches it offline with channel, user, date and regex filters, printing a permalink for each match. `mm archive status <dir>` says what the archive holds.
 
+  A sync enumerates a channel by paging it rather than through the `since` parameter. A `since` response is capped at about a thousand posts and ordered by update time, not creation time, so advancing a high-water mark to the newest post it returns steps over posts it never carried. `since` is still used as a cheap test of whether a channel has anything new. Deleted posts are not archived: paging omits them and `include_deleted` needs system admin.
+
 ## [0.5.0] - 2026-05-26
 
 ### Changed

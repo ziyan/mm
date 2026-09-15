@@ -272,6 +272,19 @@ files/<fileId>__<name>         attachment contents
 Posts are stored exactly as the server sent them rather than re-encoded, so a
 field this version of `mm` does not know about is still there for a later one.
 
+A sync reads a channel by paging it newest first until it reaches what is
+already archived, which is complete by construction. It does not enumerate with
+the `since` parameter: that response is capped at about a thousand posts and is
+ordered by when a post was last updated rather than when it was written, so the
+newest post it returns can sit far ahead of posts it never carried, and a mark
+advanced to that value steps over them for good. `since` is still asked first,
+as a cheap question of whether a channel has anything new at all, because a post
+written after the mark was also updated after it.
+
+Deleted posts are the one thing a sync does not archive. Paging omits them, and
+`include_deleted` needs system admin, so a post deleted after it was written is
+kept only if a sync saw it while it was still there.
+
 Two notes on what a sync can and cannot reach. Channels archived while you were
 a member are included; they are invisible to the ordinary channel listing and
 need `include_deleted`, which the sync passes. Public channels you have **left**
