@@ -37,6 +37,7 @@ const (
 	usersFileName    = "users.json"
 	meFileName       = "me.json"
 	stateFileName    = "state.json"
+	excludedFileName = "excluded.json"
 	filesFileName    = "files.jsonl"
 	postsDirName     = "posts"
 	filesDirName     = "files"
@@ -252,6 +253,24 @@ func (self *Store) LoadChannels() (map[string]*ArchivedChannel, error) {
 		byId[channel.ID] = channel
 	}
 	return byId, nil
+}
+
+// LoadExcluded reads the channels this archive has been told to leave alone.
+// A missing file means none of them.
+func (self *Store) LoadExcluded() ([]string, error) {
+	var patterns []string
+	if err := self.readJson(excludedFileName, &patterns); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return patterns, nil
+}
+
+// SaveExcluded records the channels to leave alone from now on.
+func (self *Store) SaveExcluded(patterns []string) error {
+	return self.writeJson(excludedFileName, patterns)
 }
 
 // SaveUsers records the users seen, so a later search can print names without

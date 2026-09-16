@@ -75,6 +75,7 @@ func init() {
 	syncCommand.Flags().Bool("full", false, "Ignore the high-water marks and re-read every channel from the start")
 	syncCommand.Flags().String("since", "", "Re-read every channel back to this date (YYYY-MM-DD) and merge, to fill gaps an earlier sync left")
 	syncCommand.Flags().Int("workers", archiveDefaultWorkers, "How many channels to read at once")
+	syncCommand.Flags().StringArray("exclude", nil, "Skip channels matching this, on top of the archive's own list (repeatable)")
 
 	searchCommand := &cobra.Command{
 		Use:   "search <directory> <query>",
@@ -94,6 +95,18 @@ func init() {
 	searchCommand.Flags().Bool("case-sensitive", false, "Match case exactly")
 	searchCommand.Flags().Bool("oldest-first", false, "Print the oldest matches first")
 
+	excludeCommand := &cobra.Command{
+		Use:   "exclude <directory> [pattern...]",
+		Short: "List or change the channels a sync leaves alone",
+		Long: "A pattern is a channel id, or any part of a channel name. A channel matching one " +
+			"is skipped by every later sync of this archive, which is what to do with a channel too " +
+			"large to be worth reading.\n\n" +
+			"Posts already archived from an excluded channel stay where they are.",
+		Args: cobra.MinimumNArgs(1),
+		RunE: archiveExcludeRun,
+	}
+	excludeCommand.Flags().Bool("remove", false, "Take the patterns off the list instead of adding them")
+
 	statusCommand := &cobra.Command{
 		Use:   "status <directory>",
 		Short: "Show what the archive holds",
@@ -101,7 +114,7 @@ func init() {
 		RunE:  archiveStatusRun,
 	}
 
-	archiveCommand.AddCommand(syncCommand, searchCommand, statusCommand)
+	archiveCommand.AddCommand(syncCommand, searchCommand, statusCommand, excludeCommand)
 	rootCommand.AddCommand(archiveCommand)
 }
 
@@ -160,6 +173,7 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 	workerCount, _ := command.Flags().GetInt("workers")
+	extraExclusions, _ := command.Flags().GetStringArray("exclude")
 	if workerCount < 1 || workerCount > archiveMaximumWorkers {
 		return fmt.Errorf("commands: --workers must be between 1 and %d", archiveMaximumWorkers)
 	}
@@ -190,9 +204,19 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
+	excluded, err := store.LoadExcluded()
+	if err != nil {
+		return err
+	}
+	excluded = append(excluded, extraExclusions...)
+
 	channels, err := archiveListChannels(ctx, apiClient, me.Id, channelScope, onlySubstring, usernames, state)
 	if err != nil {
 		return err
+	}
+	channels, skippedCount := archiveWithoutExcluded(channels, excluded)
+	if skippedCount > 0 {
+		printer.PrintInfo("%d channels excluded", skippedCount)
 	}
 	rawChannels := make([]json.RawMessage, 0, len(channels))
 	for _, channel := range channels {
@@ -321,6 +345,104 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 		return channels[first].CreateAt < channels[second].CreateAt
 	})
 	return channels, nil
+}
+
+// archiveWithoutExcluded drops the channels this archive has been told to
+// leave alone, and says how many it dropped.
+func archiveWithoutExcluded(channels []*archiveChannel, patterns []string) ([]*archiveChannel, int) {
+	if len(patterns) == 0 {
+		return channels, 0
+	}
+	kept := make([]*archiveChannel, 0, len(channels))
+	for _, channel := range channels {
+		if archiveIsExcluded(channel, patterns) {
+			continue
+		}
+		kept = append(kept, channel)
+	}
+	return kept, len(channels) - len(kept)
+}
+
+// archiveIsExcluded matches a channel against the patterns: a channel id
+// exactly, or any part of the channel's name.
+func archiveIsExcluded(channel *archiveChannel, patterns []string) bool {
+	for _, pattern := range patterns {
+		if pattern == "" {
+			continue
+		}
+		if pattern == channel.ID || strings.Contains(channel.Name, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func archiveExcludeRun(command *cobra.Command, arguments []string) error {
+	store, err := archive.Open(arguments[0])
+	if err != nil {
+		return err
+	}
+	patterns, err := store.LoadExcluded()
+	if err != nil {
+		return err
+	}
+
+	given := arguments[1:]
+	if len(given) > 0 {
+		shouldRemove, _ := command.Flags().GetBool("remove")
+		patterns = archiveChangeExclusions(patterns, given, shouldRemove)
+		if err := store.SaveExcluded(patterns); err != nil {
+			return err
+		}
+	}
+
+	if printer.JSONOutput {
+		if patterns == nil {
+			patterns = []string{}
+		}
+		printer.PrintJSON(map[string]interface{}{"excluded": patterns})
+		return nil
+	}
+	if len(patterns) == 0 {
+		printer.PrintInfo("No channels are excluded.")
+		return nil
+	}
+	printer.PrintInfo("Excluded from a sync of %s:", store.Directory())
+	for _, pattern := range patterns {
+		printer.PrintInfo("  %s", pattern)
+	}
+	return nil
+}
+
+// archiveChangeExclusions adds or removes patterns, keeping the list in order
+// and free of repeats.
+func archiveChangeExclusions(patterns, given []string, shouldRemove bool) []string {
+	if shouldRemove {
+		dropping := make(map[string]struct{}, len(given))
+		for _, pattern := range given {
+			dropping[pattern] = struct{}{}
+		}
+		kept := make([]string, 0, len(patterns))
+		for _, pattern := range patterns {
+			if _, isDropped := dropping[pattern]; isDropped {
+				continue
+			}
+			kept = append(kept, pattern)
+		}
+		return kept
+	}
+	seen := make(map[string]struct{}, len(patterns))
+	for _, pattern := range patterns {
+		seen[pattern] = struct{}{}
+	}
+	for _, pattern := range given {
+		if _, isSeen := seen[pattern]; isSeen || pattern == "" {
+			continue
+		}
+		seen[pattern] = struct{}{}
+		patterns = append(patterns, pattern)
+	}
+	return patterns
 }
 
 // archivePathKey is the file one team and channel name write to, which is

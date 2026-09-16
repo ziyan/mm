@@ -373,3 +373,58 @@ func TestMigrationNoBoundaryIds(t *testing.T) {
 		t.Fatalf("expected 1 post on disk, got %d", count)
 	}
 }
+
+func TestArchiveIsExcluded(t *testing.T) {
+	channel := &archiveChannel{ID: "y9qb63nn5ty48migkwiddzobrh", Name: "mon-testing", TeamName: "engineering"}
+	cases := []struct {
+		pattern  string
+		expected bool
+	}{
+		{"y9qb63nn5ty48migkwiddzobrh", true},
+		{"mon-testing", true},
+		{"mon-", true},
+		{"testing", true},
+		{"mussh", false},
+		{"", false},
+	}
+	for _, testCase := range cases {
+		if actual := archiveIsExcluded(channel, []string{testCase.pattern}); actual != testCase.expected {
+			t.Errorf("archiveIsExcluded(%q) = %v, expected %v", testCase.pattern, actual, testCase.expected)
+		}
+	}
+	if archiveIsExcluded(channel, nil) {
+		t.Error("no patterns must exclude nothing")
+	}
+}
+
+func TestArchiveChangeExclusions(t *testing.T) {
+	patterns := archiveChangeExclusions(nil, []string{"mussh", "mon-testing"}, false)
+	if fmt.Sprint(patterns) != "[mussh mon-testing]" {
+		t.Fatalf("expected both added in order, got %v", patterns)
+	}
+	// Adding again changes nothing.
+	patterns = archiveChangeExclusions(patterns, []string{"mussh"}, false)
+	if len(patterns) != 2 {
+		t.Errorf("a repeat should not be added twice, got %v", patterns)
+	}
+	patterns = archiveChangeExclusions(patterns, []string{"mussh"}, true)
+	if fmt.Sprint(patterns) != "[mon-testing]" {
+		t.Errorf("expected mussh removed, got %v", patterns)
+	}
+}
+
+func TestArchiveWithoutExcluded(t *testing.T) {
+	channels := []*archiveChannel{
+		{ID: "one", Name: "mon-testing"},
+		{ID: "two", Name: "backend"},
+		{ID: "three", Name: "mussh"},
+	}
+	kept, skipped := archiveWithoutExcluded(channels, []string{"mon-testing", "mussh"})
+	if skipped != 2 || len(kept) != 1 || kept[0].Name != "backend" {
+		t.Fatalf("expected only backend kept, got %d skipped and %v", skipped, kept)
+	}
+	kept, skipped = archiveWithoutExcluded(channels, nil)
+	if skipped != 0 || len(kept) != 3 {
+		t.Errorf("no patterns must keep everything, got %d skipped", skipped)
+	}
+}

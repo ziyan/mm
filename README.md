@@ -249,6 +249,10 @@ mm archive sync ~/mattermost-archive --full           # ignore the high-water ma
 mm archive sync ~/mattermost-archive --since 2026-08-01  # re-read back to a date and merge, to fill a gap
 mm archive sync ~/mattermost-archive --workers 16     # read more channels at once
 
+mm archive exclude ~/mattermost-archive           # what a sync leaves alone
+mm archive exclude ~/mattermost-archive mon-testing   # and stop reading this one
+mm archive exclude ~/mattermost-archive mon-testing --remove
+
 mm archive status ~/mattermost-archive            # what the archive holds
 mm archive search ~/mattermost-archive "deadlock" # search it offline
 mm archive search ~/mattermost-archive "timeout" -c backend -u alice --since 2026-01-01
@@ -268,6 +272,7 @@ users.json                     every user seen, so a search can print names offl
 me.json                        the authenticated user
 state.json                     per-channel high-water mark, for the next sync
 posts/<team>/<channel>.jsonl   one post per line, oldest first, as the server sent it
+excluded.json                  channels a sync leaves alone, if any
 posts/direct/<username>.jsonl  direct messages, one file per person
 posts/group/<usernames>.jsonl  group messages, named after the people in them
 files.jsonl                    one record per attachment referenced by an archived post
@@ -298,6 +303,14 @@ posts to finish, so a sync that ends with a couple of enormous channels still
 being paged spends the rest of its workers downloading instead of idling.
 Raising the count helps in proportion until the server becomes the limit, so
 16 is reasonable against a server that is not busy.
+
+A channel can be more than it is worth reading. Paging is by offset, which the
+server answers out of a database `OFFSET`, so the cost of a page grows with how
+deep it is: on one bot channel of a million posts, a page near the start took
+1.3 seconds and a page near the end took 26. `mm archive exclude <dir>
+<pattern>` records such a channel in `excluded.json`, and every later sync of
+that archive skips it. A pattern is a channel id, or any part of a channel
+name. Posts already archived from an excluded channel stay where they are.
 
 Paging is by offset over a live channel, so a post written while a sync is
 walking that channel can shift the window and be missed. A later sync does not
