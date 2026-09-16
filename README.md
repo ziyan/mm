@@ -293,9 +293,11 @@ cannot do this, because it never looks behind its own high-water mark.
 A sync is almost entirely waiting on the network: every request is a round
 trip, and a channel costs one to ask whether it has anything new plus one for
 every 200 posts it has. It therefore reads `--workers` channels at once, four
-by default, and downloads attachments the same way. Raising it helps in
-proportion until the server becomes the limit, so 16 is reasonable against a
-server that is not busy.
+by default. Attachments go through the same pool rather than waiting for the
+posts to finish, so a sync that ends with a couple of enormous channels still
+being paged spends the rest of its workers downloading instead of idling.
+Raising the count helps in proportion until the server becomes the limit, so
+16 is reasonable against a server that is not busy.
 
 Paging is by offset over a live channel, so a post written while a sync is
 walking that channel can shift the window and be missed. A later sync does not

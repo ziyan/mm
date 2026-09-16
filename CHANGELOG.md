@@ -14,7 +14,7 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 - `mm archive sync` also archives direct and group messages, under `posts/direct/<username>.jsonl` and `posts/group/<usernames>.jsonl`. A channel keeps the team and name it was first archived under.
 
-- `mm archive sync --workers <n>` reads several channels at once, and downloads attachments the same way. A sync spends nearly all of its time waiting on round trips, so this is most of what it costs. Four by default.
+- `mm archive sync --workers <n>` reads several channels at once, and downloads attachments through the same pool rather than in a phase of its own. A sync spends nearly all of its time waiting on round trips, so this is most of what it costs. Four by default.
 
 - `mm archive sync --since <date>` re-reads every channel back to that date and merges the result with what is on disk, to fill a gap an earlier sync left. An ordinary sync never looks behind its own high-water mark, so it cannot repair itself.
 

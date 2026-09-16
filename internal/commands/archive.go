@@ -29,6 +29,10 @@ const (
 	// request is a round trip to the server, so reading one channel at a time
 	// spends nearly all of a sync waiting. Four is well inside what a server
 	// shared with other people will answer without complaint.
+	archiveFileScopeNone = "none"
+	archiveFileScopeMine = "mine"
+	archiveFileScopeAll  = "all"
+
 	archiveDefaultWorkers = 4
 	archiveMaximumWorkers = 32
 
@@ -163,7 +167,7 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	if channelScope != "mine" && channelScope != "public" && channelScope != "all" {
 		return fmt.Errorf("commands: --channels must be mine, public, or all")
 	}
-	if fileScope != "none" && fileScope != "mine" && fileScope != "all" {
+	if fileScope != archiveFileScopeNone && fileScope != archiveFileScopeMine && fileScope != archiveFileScopeAll {
 		return fmt.Errorf("commands: --files must be none, mine, or all")
 	}
 
@@ -199,16 +203,16 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	}
 	printer.PrintInfo("%d channels to consider", len(channels))
 
-	if !shouldSkipPosts {
-		if err := archiveSyncPosts(ctx, apiClient, store, channels, state, isFullSync, repairSince, workerCount); err != nil {
-			return err
-		}
-	}
-
-	if fileScope != "none" {
-		if err := archiveSyncFiles(ctx, apiClient, store, me, fileScope, maximumFileMegabytes, workerCount); err != nil {
-			return err
-		}
+	if err := archiveSyncContent(ctx, apiClient, store, channels, state, &archiveSyncOptions{
+		me:                   me,
+		fileScope:            fileScope,
+		maximumFileMegabytes: maximumFileMegabytes,
+		workerCount:          workerCount,
+		isFullSync:           isFullSync,
+		shouldSkipPosts:      shouldSkipPosts,
+		repairSince:          repairSince,
+	}); err != nil {
+		return err
 	}
 
 	printer.PrintSuccess("Archive up to date in %s", store.Directory())
@@ -389,96 +393,326 @@ type archiveChannelWork struct {
 type archiveChannelOutcome struct {
 	work         *archiveChannelWork
 	lastCreateAt int64
-	freshCount   int
+	fresh        []*archivedPost
 	err          error
 }
 
-func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, state map[string]*archive.ChannelState, isFullSync bool, repairSince int64, workerCount int) error {
+// archiveSyncOptions is what the flags asked of one sync.
+type archiveSyncOptions struct {
+	me                   *model.User
+	fileScope            string
+	maximumFileMegabytes float64
+	workerCount          int
+	isFullSync           bool
+	shouldSkipPosts      bool
+	repairSince          int64
+}
+
+// archiveTask is one piece of work: a channel to read, or an attachment to
+// download. One pool takes both, so the workers that a handful of very large
+// channels are not using go to attachments instead of standing idle.
+type archiveTask struct {
+	channel *archiveChannelWork
+	fileId  string
+}
+
+// archiveOutcome is what came back for one task.
+type archiveOutcome struct {
+	channel *archiveChannelOutcome
+	file    *archiveFileOutcome
+	// newFileIds are the attachments the channel's new posts refer to, which
+	// this run goes on to download.
+	newFileIds []string
+}
+
+// archiveSyncContent reads the channels and downloads the attachments, both
+// through one pool of workers.
+//
+// Attachments are not a phase that waits for the posts to finish. The ones an
+// earlier run recorded are queued at the start, and the ones a channel turns
+// up are queued as soon as that channel is written. A sync that ends with two
+// enormous channels still being paged spends the rest of its workers on
+// attachments rather than leaving them idle.
+func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, state map[string]*archive.ChannelState, options *archiveSyncOptions) error {
 	// Where each channel is read from is worked out here, before any other
 	// goroutine runs. The state map is written by the loop at the bottom as
 	// outcomes arrive, and nothing else may be reading it by then.
-	works := make([]*archiveChannelWork, 0, len(channels))
-	for _, channel := range channels {
-		work := &archiveChannelWork{channel: channel}
-		if previous, isKnown := state[channel.ID]; isKnown {
-			work.since = previous.LastCreateAt
+	var seed []*archiveTask
+	if !options.shouldSkipPosts {
+		for _, channel := range channels {
+			work := &archiveChannelWork{channel: channel}
+			if previous, isKnown := state[channel.ID]; isKnown {
+				work.since = previous.LastCreateAt
+			}
+			// A full sync ignores the mark; a repair reads back past it; a
+			// channel with no mark is read from the beginning whatever the
+			// flags say, since anything less would leave it with a mark that
+			// claims a history it never fetched.
+			work.readFrom = work.since
+			switch {
+			case options.isFullSync:
+				work.readFrom = 0
+			case options.repairSince > 0 && work.since > 0 && options.repairSince < work.since:
+				work.readFrom = options.repairSince
+			}
+			seed = append(seed, &archiveTask{channel: work})
 		}
-		// A full sync ignores the mark; a repair reads back past it; a
-		// channel with no mark is read from the beginning whatever the flags
-		// say, since anything less would leave it with a mark that claims a
-		// history it never fetched.
-		work.readFrom = work.since
-		switch {
-		case isFullSync:
-			work.readFrom = 0
-		case repairSince > 0 && work.since > 0 && repairSince < work.since:
-			work.readFrom = repairSince
+	}
+	channelCount := len(seed)
+
+	filesDirectory := store.FilesDirectory()
+	queuedFiles := map[string]struct{}{}
+	if options.fileScope != archiveFileScopeNone {
+		pending, known, err := archivePendingFileIds(store, options.me, options.fileScope)
+		if err != nil {
+			return err
 		}
-		works = append(works, work)
+		queuedFiles = known
+		for _, fileId := range pending {
+			seed = append(seed, &archiveTask{fileId: fileId})
+		}
+		printer.PrintInfo("%d attachments to fetch in scope %q", len(pending), options.fileScope)
+		if err := os.MkdirAll(filesDirectory, 0o755); err != nil {
+			return fmt.Errorf("commands: creating %s: %w", filesDirectory, err)
+		}
 	}
 
-	queue := make(chan *archiveChannelWork)
-	outcomes := make(chan *archiveChannelOutcome)
+	tasks := make(chan *archiveTask)
+	more := make(chan []*archiveTask)
+	outcomes := make(chan *archiveOutcome)
+	maximumBytes := int64(options.maximumFileMegabytes * 1024 * 1024)
 
-	// Reading a channel is one network round trip after another, so the
-	// workers are there to have several in flight rather than to use the
-	// processor. Each writes its own channel's file, and the store guards
-	// what they share.
 	var waitGroup sync.WaitGroup
-	for worker := 0; worker < workerCount; worker++ {
+	for worker := 0; worker < options.workerCount; worker++ {
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
-			for work := range queue {
-				outcomes <- archiveSyncChannel(ctx, apiClient, store, work)
+			for task := range tasks {
+				if task.channel != nil {
+					outcome := archiveSyncChannel(ctx, apiClient, store, task.channel)
+					outcomes <- &archiveOutcome{
+						channel:    outcome,
+						newFileIds: archiveFileIdsOf(outcome, options),
+					}
+					continue
+				}
+				outcomes <- &archiveOutcome{
+					file: archiveDownloadFile(ctx, apiClient, filesDirectory, task.fileId, maximumBytes),
+				}
 			}
 		}()
 	}
+
+	// The queue grows while it is being read, so it is held here rather than
+	// in the channel. Waiting to hand out work never blocks taking more on.
 	go func() {
-		for _, work := range works {
-			queue <- work
+		backlog := seed
+		for {
+			if len(backlog) == 0 {
+				extra, isOpen := <-more
+				if !isOpen {
+					close(tasks)
+					return
+				}
+				backlog = append(backlog, extra...)
+				continue
+			}
+			select {
+			case tasks <- backlog[0]:
+				backlog = backlog[1:]
+			case extra, isOpen := <-more:
+				if !isOpen {
+					for _, task := range backlog {
+						tasks <- task
+					}
+					close(tasks)
+					return
+				}
+				backlog = append(backlog, extra...)
+			}
 		}
-		close(queue)
+	}()
+	go func() {
 		waitGroup.Wait()
 		close(outcomes)
 	}()
 
-	// The state map belongs to this loop alone from here on.
-	newPostCount, unreadableCount, doneCount := 0, 0, 0
+	// The state map belongs to this loop alone from here on, as do the counts.
+	counts := &archiveSyncCounts{}
+	pending := len(seed)
+	if pending == 0 {
+		close(more)
+	}
 	for outcome := range outcomes {
-		channel := outcome.work.channel
-		doneCount++
-		if outcome.err != nil {
-			printer.PrintInfo("  cannot read %s/%s: %v", channel.TeamName, channel.Name, outcome.err)
-			unreadableCount++
-			continue
-		}
-		newPostCount += outcome.freshCount
-
-		state[channel.ID] = &archive.ChannelState{
-			TeamName:     channel.TeamName,
-			ChannelName:  channel.Name,
-			LastCreateAt: outcome.lastCreateAt,
-			IsArchived:   channel.DeleteAt != 0,
-		}
-		// The mark is saved as soon as the posts it covers are on disk. A run
-		// cut short between the two would otherwise read those posts again
-		// and, on the ordinary append path, store them twice.
-		if outcome.lastCreateAt != outcome.work.since {
-			if err := store.SaveState(state); err != nil {
+		pending--
+		switch {
+		case outcome.channel != nil:
+			if err := archiveRecordChannel(store, state, outcome.channel, counts); err != nil {
 				return err
 			}
+			var added []*archiveTask
+			for _, fileId := range outcome.newFileIds {
+				if _, isKnown := queuedFiles[fileId]; isKnown {
+					continue
+				}
+				queuedFiles[fileId] = struct{}{}
+				added = append(added, &archiveTask{fileId: fileId})
+			}
+			if len(added) > 0 {
+				pending += len(added)
+				more <- added
+			}
+		case outcome.file != nil:
+			if outcome.file.writeError != nil {
+				return outcome.file.writeError
+			}
+			archiveRecordFile(outcome.file, counts)
 		}
-		if doneCount%archiveStateInterval == 0 {
-			printer.PrintInfo("  %d/%d channels, %d new posts", doneCount, len(channels), newPostCount)
+		counts.report(channelCount, len(queuedFiles))
+		if pending == 0 {
+			close(more)
 		}
 	}
 
 	if err := store.SaveState(state); err != nil {
 		return err
 	}
-	printer.PrintInfo("%d new posts, %d channels unreadable", newPostCount, unreadableCount)
+	counts.summarize(options)
 	return nil
+}
+
+// archiveFileIdsOf picks the attachments a channel's new posts refer to, for
+// the scope this sync was asked for.
+func archiveFileIdsOf(outcome *archiveChannelOutcome, options *archiveSyncOptions) []string {
+	if options.fileScope == archiveFileScopeNone || outcome.err != nil {
+		return nil
+	}
+	var fileIds []string
+	for _, post := range outcome.fresh {
+		if options.fileScope == archiveFileScopeMine && post.header.UserID != options.me.Id {
+			continue
+		}
+		fileIds = append(fileIds, post.header.FileIDs...)
+	}
+	return fileIds
+}
+
+// archiveSyncCounts is what a sync reports as it goes.
+type archiveSyncCounts struct {
+	newPostCount     int
+	unreadableCount  int
+	channelsDone     int
+	savedCount       int
+	tooBigCount      int
+	unavailableCount int
+	filesDone        int
+	savedBytes       int64
+}
+
+func (self *archiveSyncCounts) report(channelCount, fileCount int) {
+	if self.channelsDone > 0 && self.channelsDone%archiveStateInterval == 0 && self.filesDone == 0 {
+		printer.PrintInfo("  %d/%d channels, %d new posts", self.channelsDone, channelCount, self.newPostCount)
+		return
+	}
+	if self.filesDone > 0 && self.filesDone%200 == 0 {
+		printer.PrintInfo("  %d/%d channels, %d new posts, %d/%d attachments, %.2f GB",
+			self.channelsDone, channelCount, self.newPostCount, self.filesDone, fileCount,
+			float64(self.savedBytes)/1e9)
+	}
+}
+
+func (self *archiveSyncCounts) summarize(options *archiveSyncOptions) {
+	printer.PrintInfo("%d new posts, %d channels unreadable", self.newPostCount, self.unreadableCount)
+	if options.fileScope != archiveFileScopeNone {
+		printer.PrintInfo("%d attachments saved (%.2f GB), %d over %.0f MB, %d unavailable",
+			self.savedCount, float64(self.savedBytes)/1e9, self.tooBigCount,
+			options.maximumFileMegabytes, self.unavailableCount)
+	}
+}
+
+// archiveRecordChannel takes one channel's outcome into the state.
+func archiveRecordChannel(store *archive.Store, state map[string]*archive.ChannelState, outcome *archiveChannelOutcome, counts *archiveSyncCounts) error {
+	channel := outcome.work.channel
+	counts.channelsDone++
+	if outcome.err != nil {
+		printer.PrintInfo("  cannot read %s/%s: %v", channel.TeamName, channel.Name, outcome.err)
+		counts.unreadableCount++
+		return nil
+	}
+	counts.newPostCount += len(outcome.fresh)
+
+	state[channel.ID] = &archive.ChannelState{
+		TeamName:     channel.TeamName,
+		ChannelName:  channel.Name,
+		LastCreateAt: outcome.lastCreateAt,
+		IsArchived:   channel.DeleteAt != 0,
+	}
+	// The mark is saved as soon as the posts it covers are on disk. A run cut
+	// short between the two would otherwise read those posts again and, on
+	// the ordinary append path, store them twice.
+	if outcome.lastCreateAt != outcome.work.since {
+		return store.SaveState(state)
+	}
+	return nil
+}
+
+func archiveRecordFile(outcome *archiveFileOutcome, counts *archiveSyncCounts) {
+	counts.filesDone++
+	switch {
+	case outcome.isTooBig:
+		counts.tooBigCount++
+	case outcome.isUnavailable:
+		counts.unavailableCount++
+	default:
+		counts.savedCount++
+		counts.savedBytes += outcome.savedBytes
+	}
+}
+
+// archivePendingFileIds is the attachments already referenced by the archive
+// that are not on disk yet, and every attachment id it knows of either way.
+func archivePendingFileIds(store *archive.Store, me *model.User, fileScope string) ([]string, map[string]struct{}, error) {
+	wanted, err := store.ReferencedFileIDs()
+	if err != nil {
+		return nil, nil, err
+	}
+	if fileScope == archiveFileScopeMine {
+		mine, err := archiveOwnFileIds(store, me.Id)
+		if err != nil {
+			return nil, nil, err
+		}
+		for fileId := range wanted {
+			if _, isMine := mine[fileId]; !isMine {
+				delete(wanted, fileId)
+			}
+		}
+	}
+
+	known := make(map[string]struct{}, len(wanted))
+	for fileId := range wanted {
+		known[fileId] = struct{}{}
+	}
+
+	filesDirectory := store.FilesDirectory()
+	// One listing rather than a stat per file: the directory grows as we go.
+	entries, err := os.ReadDir(filesDirectory)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("commands: reading %s: %w", filesDirectory, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if index := strings.Index(name, "__"); index > 0 {
+			delete(wanted, name[:index])
+			known[name[:index]] = struct{}{}
+		}
+	}
+
+	todo := make([]string, 0, len(wanted))
+	for fileId := range wanted {
+		todo = append(todo, fileId)
+	}
+	sort.Strings(todo)
+	return todo, known, nil
 }
 
 // archiveSyncChannel reads one channel and writes what is new to it.
@@ -498,7 +732,7 @@ func archiveSyncChannel(ctx context.Context, apiClient *model.Client4, store *ar
 		outcome.err = err
 		return outcome
 	}
-	outcome.freshCount = len(written.fresh)
+	outcome.fresh = written.fresh
 	// The mark follows the newest post the server showed, new to the archive
 	// or not. A run cut short re-reads posts it already has, and a mark that
 	// only ever followed new ones would sit behind that channel's file and
@@ -788,97 +1022,6 @@ func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *arch
 		usernames[user.Id] = user.Username
 	}
 	return usernames, nil
-}
-
-func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *archive.Store, me *model.User, fileScope string, maximumFileMegabytes float64, workerCount int) error {
-	wanted, err := store.ReferencedFileIDs()
-	if err != nil {
-		return err
-	}
-	if fileScope == "mine" {
-		mine, err := archiveOwnFileIds(store, me.Id)
-		if err != nil {
-			return err
-		}
-		for fileId := range wanted {
-			if _, isMine := mine[fileId]; !isMine {
-				delete(wanted, fileId)
-			}
-		}
-	}
-
-	filesDirectory := store.FilesDirectory()
-	if err := os.MkdirAll(filesDirectory, 0o755); err != nil {
-		return fmt.Errorf("commands: creating %s: %w", filesDirectory, err)
-	}
-	// One listing rather than a stat per file: the directory grows as we go.
-	entries, err := os.ReadDir(filesDirectory)
-	if err != nil {
-		return fmt.Errorf("commands: reading %s: %w", filesDirectory, err)
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if index := strings.Index(name, "__"); index > 0 {
-			delete(wanted, name[:index])
-		}
-	}
-
-	todo := make([]string, 0, len(wanted))
-	for fileId := range wanted {
-		todo = append(todo, fileId)
-	}
-	sort.Strings(todo)
-	printer.PrintInfo("%d attachments to fetch in scope %q", len(todo), fileScope)
-
-	maximumBytes := int64(maximumFileMegabytes * 1024 * 1024)
-	queue := make(chan string)
-	outcomes := make(chan *archiveFileOutcome)
-
-	// Downloading is waiting on the network too, so the same worker count
-	// applies. Each attachment is a file of its own, so the workers share
-	// nothing but the counters the loop below keeps.
-	var waitGroup sync.WaitGroup
-	for worker := 0; worker < workerCount; worker++ {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
-			for fileId := range queue {
-				outcomes <- archiveDownloadFile(ctx, apiClient, filesDirectory, fileId, maximumBytes)
-			}
-		}()
-	}
-	go func() {
-		for _, fileId := range todo {
-			queue <- fileId
-		}
-		close(queue)
-		waitGroup.Wait()
-		close(outcomes)
-	}()
-
-	savedCount, tooBigCount, unavailableCount, doneCount := 0, 0, 0, 0
-	var savedBytes int64
-	for outcome := range outcomes {
-		doneCount++
-		switch {
-		case outcome.writeError != nil:
-			return outcome.writeError
-		case outcome.isTooBig:
-			tooBigCount++
-		case outcome.isUnavailable:
-			unavailableCount++
-		default:
-			savedCount++
-			savedBytes += outcome.savedBytes
-		}
-		if doneCount%200 == 0 {
-			printer.PrintInfo("  %d/%d attachments, %d saved, %.2f GB",
-				doneCount, len(todo), savedCount, float64(savedBytes)/1e9)
-		}
-	}
-	printer.PrintInfo("%d attachments saved (%.2f GB), %d over %.0f MB, %d unavailable",
-		savedCount, float64(savedBytes)/1e9, tooBigCount, maximumFileMegabytes, unavailableCount)
-	return nil
 }
 
 // archiveFileOutcome is what came back for one attachment. A failed write
