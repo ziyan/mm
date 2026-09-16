@@ -277,8 +277,7 @@ Posts are stored exactly as the server sent them rather than re-encoded, so a
 field this version of `mm` does not know about is still there for a later one.
 
 A sync reads a channel by paging it newest first until it reaches what is
-already archived, which is complete by construction. It does not enumerate with
-the `since` parameter: that response is capped at about a thousand posts and is
+already archived. It does not enumerate with the `since` parameter: that response is capped at about a thousand posts and is
 ordered by when a post was last updated rather than when it was written, so the
 newest post it returns can sit far ahead of posts it never carried, and a mark
 advanced to that value steps over them for good. `since` is still asked first,
@@ -289,6 +288,12 @@ written after the mark was also updated after it.
 merges what it finds with what is on disk, keeping both, so a gap an older sync
 left is filled without disturbing anything already archived. An ordinary sync
 cannot do this, because it never looks behind its own high-water mark.
+
+Paging is by offset over a live channel, so a post written while a sync is
+walking that channel can shift the window and be missed. A later sync does not
+look behind its mark, so `--since` is what recovers one. A first read also
+holds the channel in memory, so it costs about what that channel's file costs
+on disk.
 
 Deleted posts are the one thing a sync does not archive. Paging omits them, and
 `include_deleted` needs system admin, so a post deleted after it was written is

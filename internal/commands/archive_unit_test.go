@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ziyan/mm/internal/archive"
@@ -37,12 +38,15 @@ func TestArchiveWritePostsStoresEachPostOnce(t *testing.T) {
 		"post2": rawPost("post2", 200, "second"),
 		"post3": rawPost("post3", 300, "third"),
 	}
-	fresh, err := archiveWritePosts(store, channel, first, 0, true)
+	written, err := archiveWritePosts(store, channel, first, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fresh) != 2 {
-		t.Fatalf("expected 2 fresh posts, got %d", len(fresh))
+	if len(written.fresh) != 2 {
+		t.Fatalf("expected 2 fresh posts, got %d", len(written.fresh))
+	}
+	if written.newestCreateAt != 300 {
+		t.Fatalf("expected the mark at the newest post, got %d", written.newestCreateAt)
 	}
 
 	// The same posts again, as after a crash before SaveState, plus one newer.
@@ -51,12 +55,12 @@ func TestArchiveWritePostsStoresEachPostOnce(t *testing.T) {
 		"post3": rawPost("post3", 300, "third"),
 		"post4": rawPost("post4", 400, "fourth"),
 	}
-	fresh, err = archiveWritePosts(store, channel, second, 0, true)
+	written, err = archiveWritePosts(store, channel, second, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fresh) != 1 || fresh[0].header.ID != "post4" {
-		t.Fatalf("expected only post4 to be fresh, got %+v", fresh)
+	if len(written.fresh) != 1 || written.fresh[0].header.ID != "post4" {
+		t.Fatalf("expected only post4 to be fresh, got %+v", written.fresh)
 	}
 
 	// A repair reaching back before what is on disk: merged, in order.
@@ -64,12 +68,12 @@ func TestArchiveWritePostsStoresEachPostOnce(t *testing.T) {
 		"post1": rawPost("post1", 100, "first"),
 		"post3": rawPost("post3", 300, "third"),
 	}
-	fresh, err = archiveWritePosts(store, channel, repair, 0, true)
+	written, err = archiveWritePosts(store, channel, repair, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fresh) != 1 || fresh[0].header.ID != "post1" {
-		t.Fatalf("expected only post1 to be fresh, got %+v", fresh)
+	if len(written.fresh) != 1 || written.fresh[0].header.ID != "post1" {
+		t.Fatalf("expected only post1 to be fresh, got %+v", written.fresh)
 	}
 
 	var ids []string
@@ -100,7 +104,7 @@ func TestMessageMatcherSeesThroughJSONEscaping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if matcher.canPrefilter {
+	if matcher.prefilter != nil {
 		t.Fatal("a query holding a quote must not be tested against the raw line")
 	}
 	line := rawPost("post1", 100, `Please SAY "hi" & <bye> now`)
@@ -119,7 +123,7 @@ func TestMessageMatcherSeesThroughJSONEscaping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plain.canPrefilter || !plain.matches(line) {
+	if plain.prefilter == nil || !plain.prefilter(line) {
 		t.Fatal("a plain query is tested against the raw line first, and must match it")
 	}
 	exact, err := newMessageMatcher("say", false, true)
@@ -134,8 +138,8 @@ func TestMessageMatcherSeesThroughJSONEscaping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if anchored.canPrefilter {
-		t.Fatal("a regular expression must not be tested against the raw line")
+	if anchored.prefilter != nil {
+		t.Fatal("a regular expression with no literal prefix must not touch the raw line")
 	}
 	if anchored.matches(line) || !anchored.matches([]byte(post.Message)) {
 		t.Fatal("a regex anchor must bind to the message, not the line")
@@ -182,12 +186,12 @@ func TestArchiveWritePostsDetectsAStaleMark(t *testing.T) {
 	}
 	// The mark was never advanced past 100, so the same read happens again.
 	batch["post4"] = rawPost("post4", 400, "fourth")
-	fresh, err := archiveWritePosts(store, channel, batch, 100, false)
+	written, err := archiveWritePosts(store, channel, batch, 100, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fresh) != 1 || fresh[0].header.ID != "post4" {
-		t.Fatalf("expected only post4 to be fresh after a stale mark, got %d posts", len(fresh))
+	if len(written.fresh) != 1 || written.fresh[0].header.ID != "post4" {
+		t.Fatalf("expected only post4 to be fresh after a stale mark, got %d posts", len(written.fresh))
 	}
 	count := 0
 	if err := store.ScanPosts("engineering", "backend", func(line []byte) bool { count++; return true }); err != nil {
@@ -217,7 +221,7 @@ func TestMessageMatcherFoldsCaseOutsideASCII(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prefixed.canPrefilter || !prefixed.matches([]byte("a deadlock in the works")) || prefixed.matches([]byte("a lock in")) {
+	if prefixed.prefilter == nil || !prefixed.matches([]byte("a deadlock in the works")) || prefixed.matches([]byte("a lock in")) {
 		t.Fatal("a case-sensitive regex with a literal prefix is prefiltered on that prefix")
 	}
 }
@@ -235,5 +239,137 @@ func TestArchiveDirectChannelName(t *testing.T) {
 	}
 	if name := archiveDirectChannelName("me__gone", "me", usernames); name != "gone" {
 		t.Errorf("an unknown user falls back to the id, got %q", name)
+	}
+}
+
+// TestArchiveDisambiguateName covers two channels wanting one name, which the
+// server allows: a group message's display name is capped at 64 characters, so
+// two groups whose members agree that far are named the same.
+func TestArchiveDisambiguateName(t *testing.T) {
+	first := archiveDisambiguateName("alice, bob, carol", "ch4mbo6asid9pmih5g314x6nwh")
+	second := archiveDisambiguateName("alice, bob, carol", "q4okb5tfhfg7defz96mnbyaste")
+	if first == second {
+		t.Fatalf("two channels were given the same name: %q", first)
+	}
+	if !strings.HasPrefix(first, "alice__bob__carol-") {
+		t.Errorf("the name should keep its readable part, got %q", first)
+	}
+	// A name already at the cap must not lose its suffix to the cap.
+	long := archiveDisambiguateName(strings.Repeat("a", 200), "ch4mbo6asid9pmih5g314x6nwh")
+	if length := len(archive.SafeName(long)); length != len(long) || length > archive.MaximumNameLength {
+		t.Errorf("a long name came out %d characters and does not survive SafeName", len(long))
+	}
+	if !strings.HasSuffix(long, "-ch4mbo6a") {
+		t.Errorf("the suffix was cut off a long name: %q", long)
+	}
+}
+
+// TestMessageMatcherPrefilterIsOnlyANecessaryCondition guards the mistake of
+// running the whole test over the raw line: an anchor or a class in the
+// pattern would bind to the line, which holds the post's ids and props as well
+// as its message, and the post would be dropped before anything parsed it.
+func TestMessageMatcherPrefilterIsOnlyANecessaryCondition(t *testing.T) {
+	line := rawPost("post1", 100, "hello")
+	for _, query := range []string{`^hello`, `hello$`, `^hello$`} {
+		matcher, err := newMessageMatcher(query, true, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if matcher.prefilter != nil && !matcher.prefilter(line) {
+			t.Errorf("the prefilter dropped a line whose message matches %q", query)
+		}
+		if !matcher.matches([]byte("hello")) {
+			t.Errorf("the message should match %q", query)
+		}
+	}
+	// A pattern whose body reaches a character JSON escapes.
+	escaping, err := newMessageMatcher(`hel.*<x>`, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	escaped := rawPost("post2", 100, "hello <x>")
+	if escaping.prefilter != nil && !escaping.prefilter(escaped) {
+		t.Error("the prefilter dropped a line whose message holds an escaped character")
+	}
+	if !escaping.matches([]byte("hello <x>")) {
+		t.Error("the decoded message should match")
+	}
+}
+
+// TestArchiveWritePostsKeepsPostsSharingTheMark covers two posts written in
+// the same millisecond. The mark cannot tell them apart, so the ids at it are
+// carried in the state, and without them the second post is skipped for good.
+func TestArchiveWritePostsKeepsPostsSharingTheMark(t *testing.T) {
+	store, err := archive.Create(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel := &archiveChannel{ID: "channel1", Name: "backend", TeamName: "engineering"}
+
+	written, err := archiveWritePosts(store, channel, map[string]json.RawMessage{
+		"post1": rawPost("post1", 100, "first"),
+	}, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written.newestCreateAt != 100 {
+		t.Fatalf("expected the mark at the newest post, got %d", written.newestCreateAt)
+	}
+
+	// A second post written in the same millisecond, read on the next sync.
+	// The mark cannot tell it from the first, so the end of the file must.
+	written, err = archiveWritePosts(store, channel, map[string]json.RawMessage{
+		"post1": rawPost("post1", 100, "first"),
+		"post2": rawPost("post2", 100, "same millisecond"),
+	}, 100, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written.fresh) != 1 || written.fresh[0].header.ID != "post2" {
+		t.Fatalf("expected post2 to be archived and post1 not, got %+v", written.fresh)
+	}
+
+	var ids []string
+	if err := store.ScanPosts("engineering", "backend", func(line []byte) bool {
+		header := &postHeader{}
+		if err := json.Unmarshal(line, header); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, header.ID)
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(ids) != "[post1 post2]" {
+		t.Fatalf("expected both posts once each, got %v", ids)
+	}
+}
+
+// An archive whose state says only how far it got, which is every archive
+// written before a sync read the end of the file to tell posts at the mark
+// apart. The boundary post must not be stored a second time.
+func TestMigrationNoBoundaryIds(t *testing.T) {
+	store, _ := archive.Create(t.TempDir())
+	channel := &archiveChannel{ID: "c1", Name: "backend", TeamName: "engineering"}
+	if _, err := archiveWritePosts(store, channel, map[string]json.RawMessage{
+		"post1": rawPost("post1", 100, "first"),
+	}, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	// Next sync: mark is 100, state has no ids (old archive), server hands
+	// back the same post because paging reaches it.
+	written, err := archiveWritePosts(store, channel, map[string]json.RawMessage{
+		"post1": rawPost("post1", 100, "first"),
+	}, 100, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(written.fresh) != 0 {
+		t.Fatalf("post1 was archived a second time: %+v", written.fresh)
+	}
+	count := 0
+	_ = store.ScanPosts("engineering", "backend", func(line []byte) bool { count++; return true })
+	if count != 1 {
+		t.Fatalf("expected 1 post on disk, got %d", count)
 	}
 }

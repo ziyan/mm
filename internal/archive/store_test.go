@@ -225,13 +225,13 @@ func TestExpandPath(t *testing.T) {
 	}
 }
 
-func TestNewestPostAndAppendAfterAPartialLine(t *testing.T) {
+func TestReadTailAndAppendAfterAPartialLine(t *testing.T) {
 	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("creating the archive: %v", err)
 	}
-	if newest, endsWithNewline, err := store.NewestPost("team", "channel"); err != nil || newest != nil || !endsWithNewline {
-		t.Fatalf("a missing file should read as empty, got %q %v %v", newest, endsWithNewline, err)
+	if tail, err := store.ReadTail("team", "channel"); err != nil || len(tail.Posts) != 0 || !tail.EndsWithNewline || !tail.IsComplete {
+		t.Fatalf("a missing file should read as an empty tail, got %+v %v", tail, err)
 	}
 
 	long := strings.Repeat("y", 200*1024) // longer than one backward chunk
@@ -240,16 +240,20 @@ func TestNewestPostAndAppendAfterAPartialLine(t *testing.T) {
 	if err := store.AppendPosts("team", "channel", []json.RawMessage{first, second}); err != nil {
 		t.Fatalf("appending: %v", err)
 	}
-	newest, endsWithNewline, err := store.NewestPost("team", "channel")
-	if err != nil || !endsWithNewline || string(newest) != string(second) {
-		t.Fatalf("expected the second post as the newest, got %.40q %v %v", newest, endsWithNewline, err)
+	tail, err := store.ReadTail("team", "channel")
+	if err != nil || !tail.EndsWithNewline || len(tail.Posts) != 1 || string(tail.Posts[0]) != string(second) {
+		t.Fatalf("expected the second post alone as the tail, got %+v %v", tail, err)
 	}
-	// Only the long line, so the walk back reaches the start of the file.
-	if err := os.WriteFile(store.PostsPath("team", "channel"), append(first, '\n'), 0o644); err != nil {
+	// Two posts sharing one millisecond: both belong to the tail.
+	same1, _ := json.Marshal(map[string]interface{}{"id": "s1", "create_at": 500, "message": "a"})
+	same2, _ := json.Marshal(map[string]interface{}{"id": "s2", "create_at": 500, "message": "b"})
+	older, _ := json.Marshal(map[string]interface{}{"id": "s0", "create_at": 400, "message": "older"})
+	if err := store.AppendPosts("team", "same", []json.RawMessage{older, same1, same2}); err != nil {
 		t.Fatal(err)
 	}
-	if newest, _, err := store.NewestPost("team", "channel"); err != nil || len(newest) != len(first) {
-		t.Fatalf("expected the long post back whole, got %d bytes, %v", len(newest), err)
+	tail, err = store.ReadTail("team", "same")
+	if err != nil || len(tail.Posts) != 2 || tail.NewestCreateAt != 500 || !tail.IsComplete {
+		t.Fatalf("expected both posts at 500 in the tail, got %+v %v", tail, err)
 	}
 
 	// A file cut short mid-line: the next append must start on a new line.

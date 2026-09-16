@@ -39,6 +39,10 @@ const (
 	filesFileName    = "files.jsonl"
 	postsDirName     = "posts"
 	filesDirName     = "files"
+
+	// MaximumNameLength is the cap SafeName puts on one path element. A long
+	// team or channel name cannot push a path past what a file system takes.
+	MaximumNameLength = 120
 )
 
 var unsafeNameCharacters = regexp.MustCompile(`[^A-Za-z0-9._-]`)
@@ -164,10 +168,16 @@ func (self *Store) FilesPath() string {
 }
 
 // SafeName turns a team or channel name into something safe to use as a path.
+// A name of nothing but dots names the current or parent directory. Another
+// tool may have written such a name into the state, so SafeName replaces it
+// rather than handing it back.
 func SafeName(name string) string {
 	safe := unsafeNameCharacters.ReplaceAllString(name, "_")
-	if len(safe) > 120 {
-		safe = safe[:120]
+	if len(safe) > MaximumNameLength {
+		safe = safe[:MaximumNameLength]
+	}
+	if safe == "" || strings.Trim(safe, ".") == "" {
+		return strings.Repeat("_", len(safe)+1)
 	}
 	return safe
 }
@@ -276,69 +286,14 @@ func (self *Store) AppendPosts(teamName, channelName string, lines []json.RawMes
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("archive: creating %s: %w", filepath.Dir(path), err)
 	}
-	_, endsWithNewline, err := self.NewestPost(teamName, channelName)
+	tail, err := self.ReadTail(teamName, channelName)
 	if err != nil {
 		return err
 	}
-	if !endsWithNewline {
+	if !tail.EndsWithNewline {
 		lines = append([]json.RawMessage{nil}, lines...)
 	}
 	return writeLines(path, os.O_APPEND, lines)
-}
-
-// NewestPost reads the last line of one channel's file, without reading the
-// rest of it, and says whether the file ends with a newline. A missing or
-// empty file yields nil and true.
-func (self *Store) NewestPost(teamName, channelName string) ([]byte, bool, error) {
-	path := self.PostsPath(teamName, channelName)
-	file, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, true, nil
-		}
-		return nil, false, fmt.Errorf("archive: opening %s: %w", path, err)
-	}
-	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, false, fmt.Errorf("archive: reading %s: %w", path, err)
-	}
-	size := info.Size()
-	if size == 0 {
-		return nil, true, nil
-	}
-
-	// Read backwards a chunk at a time until the line before the last one
-	// shows up, or the file runs out.
-	const chunkSize = 64 * 1024
-	var tail []byte
-	endsWithNewline := false
-	for offset := size; offset > 0; {
-		length := int64(chunkSize)
-		if length > offset {
-			length = offset
-		}
-		offset -= length
-		chunk := make([]byte, length)
-		if _, err := file.ReadAt(chunk, offset); err != nil && err != io.EOF {
-			return nil, false, fmt.Errorf("archive: reading %s: %w", path, err)
-		}
-		tail = append(chunk, tail...)
-		if offset+length == size {
-			endsWithNewline = tail[len(tail)-1] == '\n'
-		}
-		content := tail
-		if endsWithNewline {
-			content = content[:len(content)-1]
-		}
-		if index := bytes.LastIndexByte(content, '\n'); index >= 0 {
-			return append([]byte(nil), content[index+1:]...), endsWithNewline, nil
-		}
-	}
-	if endsWithNewline {
-		tail = tail[:len(tail)-1]
-	}
-	return tail, endsWithNewline, nil
 }
 
 // MergePosts rewrites one channel's file as what is on disk plus additions,
@@ -443,6 +398,84 @@ func writeLines(path string, mode int, lines []json.RawMessage) error {
 		return fmt.Errorf("archive: writing %s: %w", path, err)
 	}
 	return nil
+}
+
+// Tail is the end of one channel's file. It holds the posts sharing the
+// newest create_at. A sync tells those apart by id, since the mark alone
+// cannot. IsComplete is false when the run filled the window. The caller then
+// falls back to reading the whole file.
+type Tail struct {
+	Posts           []json.RawMessage
+	NewestCreateAt  int64
+	EndsWithNewline bool
+	IsComplete      bool
+}
+
+// tailWindowSize is how much of the end of a file ReadTail looks at. A run of
+// posts sharing one millisecond is a handful at most. This is far more than
+// enough, and it bounds the read of a file that may be huge.
+const tailWindowSize = 64 * 1024
+
+// ReadTail reads the end of one channel's file. A missing or empty file gives
+// an empty tail that is complete, which is what a channel never synced looks
+// like.
+func (self *Store) ReadTail(teamName, channelName string) (*Tail, error) {
+	path := self.PostsPath(teamName, channelName)
+	tail := &Tail{EndsWithNewline: true, IsComplete: true}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return tail, nil
+		}
+		return nil, fmt.Errorf("archive: opening %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("archive: reading %s: %w", path, err)
+	}
+	size := info.Size()
+	if size == 0 {
+		return tail, nil
+	}
+
+	length := int64(tailWindowSize)
+	if length > size {
+		length = size
+	}
+	offset := size - length
+	window := make([]byte, length)
+	if _, err := file.ReadAt(window, offset); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("archive: reading %s: %w", path, err)
+	}
+	tail.EndsWithNewline = window[len(window)-1] == '\n'
+	if tail.EndsWithNewline {
+		window = window[:len(window)-1]
+	}
+
+	lines := bytes.Split(window, []byte("\n"))
+	if offset > 0 {
+		// The window opened mid-line, so the first one is a fragment.
+		lines = lines[1:]
+	}
+	for index := len(lines) - 1; index >= 0; index-- {
+		line := lines[index]
+		if len(line) == 0 {
+			continue
+		}
+		createAt := postCreateAt(line)
+		if len(tail.Posts) == 0 {
+			tail.NewestCreateAt = createAt
+		} else if createAt != tail.NewestCreateAt {
+			return tail, nil
+		}
+		tail.Posts = append(tail.Posts, append(json.RawMessage(nil), line...))
+	}
+	// Every line in the window shares the one timestamp. Only a read of the
+	// whole file can say where the run starts, unless the window was the
+	// whole file.
+	tail.IsComplete = offset == 0
+	return tail, nil
 }
 
 // AppendFiles adds attachment records to the attachment index.

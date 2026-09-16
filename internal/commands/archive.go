@@ -210,6 +210,13 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 		return nil, fmt.Errorf("commands: listing teams: %w", err)
 	}
 
+	// Every name an earlier sync recorded is spoken for, whether or not this
+	// run lists that channel again.
+	claimedBy := make(map[string]string, len(state))
+	for channelId, channelState := range state {
+		claimedBy[archivePathKey(channelState.TeamName, channelState.ChannelName)] = channelId
+	}
+
 	var channels []*archiveChannel
 	seen := map[string]struct{}{}
 	for _, team := range teams {
@@ -267,7 +274,10 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 				if previous, isKnown := state[header.ID]; isKnown && previous.TeamName != "" && previous.ChannelName != "" {
 					channel.TeamName = previous.TeamName
 					channel.Name = previous.ChannelName
+				} else if holder, isClaimed := claimedBy[archivePathKey(channel.TeamName, channel.Name)]; isClaimed && holder != channel.ID {
+					channel.Name = archiveDisambiguateName(channel.Name, channel.ID)
 				}
+				claimedBy[archivePathKey(channel.TeamName, channel.Name)] = channel.ID
 				if onlySubstring != "" && !strings.Contains(channel.Name, onlySubstring) {
 					continue
 				}
@@ -285,6 +295,28 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 		return channels[first].CreateAt < channels[second].CreateAt
 	})
 	return channels, nil
+}
+
+// archivePathKey is the file one team and channel name write to, which is
+// what two channels must not share.
+func archivePathKey(teamName, channelName string) string {
+	return archive.SafeName(teamName) + "/" + archive.SafeName(channelName)
+}
+
+// archiveDisambiguateName gives a channel a name of its own by ending it with
+// part of its id. The name is cut first, so the suffix is not itself lost to
+// the length cap that SafeName applies.
+func archiveDisambiguateName(channelName, channelId string) string {
+	const suffixLength = 8
+	suffix := channelId
+	if len(suffix) > suffixLength {
+		suffix = suffix[:suffixLength]
+	}
+	safe := archive.SafeName(channelName)
+	if longest := archive.MaximumNameLength - len(suffix) - 1; len(safe) > longest {
+		safe = safe[:longest]
+	}
+	return safe + "-" + suffix
 }
 
 // archiveDirectChannelName names a direct message channel after the other
@@ -352,16 +384,18 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 
 		lastCreateAt := since
 		if len(collected) > 0 {
-			fresh, err := archiveWritePosts(store, channel, collected, readFrom, readFrom < since || since == 0)
+			written, err := archiveWritePosts(store, channel, collected, readFrom, readFrom < since || since == 0)
 			if err != nil {
 				return err
 			}
-			for _, post := range fresh {
-				if post.header.CreateAt > lastCreateAt {
-					lastCreateAt = post.header.CreateAt
-				}
+			newPostCount += len(written.fresh)
+			// The mark follows the newest post the server showed, new to the
+			// archive or not. A run cut short re-reads posts it already has,
+			// and a mark that only ever followed new ones would sit behind
+			// that channel's file and page it from there on every later sync.
+			if written.newestCreateAt > lastCreateAt {
+				lastCreateAt = written.newestCreateAt
 			}
-			newPostCount += len(fresh)
 		}
 
 		state[channel.ID] = &archive.ChannelState{
@@ -406,6 +440,12 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 // So: ask since whether there is anything to do, and page when there is. A
 // post written after the mark always has an update time after the mark too, so
 // since never says no when the answer is yes.
+//
+// Two things this does not promise. It holds one channel's read in memory, so
+// a first read of a very long channel costs about what that channel's file
+// costs on disk. And paging is by offset over a live channel, so a post
+// written while the walk is in progress can shift the window and be missed;
+// the next sync does not go back for it, and --since is what recovers it.
 //
 // Deleted posts are the one thing this does not archive. Paging omits them and
 // include_deleted needs system admin, so a post deleted after it was written is
@@ -461,6 +501,11 @@ func archiveReadChannel(ctx context.Context, apiClient *model.Client4, channelId
 
 // archiveChannelHasNewPosts reports whether anything was written in a channel
 // after the mark. One request, and for a quiet channel it is the only one.
+//
+// Strictly after: the post the mark was taken from sits at the mark itself,
+// and asking about it would page every channel on every sync. A post sharing
+// that millisecond therefore waits for a later post to bring the sync back,
+// and the ids kept in the state are what stop it being skipped then.
 func archiveChannelHasNewPosts(ctx context.Context, apiClient *model.Client4, channelId string, since int64) (bool, error) {
 	list, err := archiveGetPosts(ctx, apiClient,
 		fmt.Sprintf("/channels/%s/posts?since=%d", channelId, since))
@@ -491,24 +536,40 @@ func archiveChannelHasNewPosts(ctx context.Context, apiClient *model.Client4, ch
 // server no longer hands out, such as deleted ones an earlier sync caught
 // while they were still there, are kept: the file is merged into, never
 // replaced from the server's view.
-func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected map[string]json.RawMessage, readFrom int64, shouldConsultDisk bool) ([]*archivedPost, error) {
+func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected map[string]json.RawMessage, readFrom int64, shouldConsultDisk bool) (*archiveWriteResult, error) {
+	alreadyArchived := map[string]struct{}{}
+	newestOnDisk := int64(0)
 	if !shouldConsultDisk {
-		// The mark says nothing on disk is newer than readFrom. The last line
-		// of the file is cheap to check, and disagrees when a run was cut
-		// short after writing posts but before saving the mark.
-		newest, _, err := store.NewestPost(channel.TeamName, channel.Name)
+		// The mark says nothing on disk is newer than readFrom, and the end
+		// of the file is cheap to check against that. It disagrees when a run
+		// was cut short after writing posts but before saving the mark.
+		//
+		// The posts at the very end also have to be named. A read starts at
+		// the mark rather than past it, so that a post sharing the mark's
+		// millisecond is not skipped for good, and their ids are the only
+		// thing telling those two apart.
+		tail, err := store.ReadTail(channel.TeamName, channel.Name)
 		if err != nil {
 			return nil, err
 		}
-		header := &postHeader{}
-		if len(newest) > 0 && (json.Unmarshal(newest, header) != nil || header.CreateAt > readFrom) {
+		switch {
+		case tail.NewestCreateAt > readFrom || !tail.IsComplete:
 			shouldConsultDisk = true
+		default:
+			newestOnDisk = tail.NewestCreateAt
+			for _, raw := range tail.Posts {
+				header := &postHeader{}
+				if err := json.Unmarshal(raw, header); err != nil {
+					shouldConsultDisk = true
+					break
+				}
+				alreadyArchived[header.ID] = struct{}{}
+			}
 		}
 	}
-
-	alreadyArchived := map[string]struct{}{}
-	newestOnDisk := int64(0)
 	if shouldConsultDisk {
+		alreadyArchived = map[string]struct{}{}
+		newestOnDisk = 0
 		unparseableCount := 0
 		err := store.ScanPosts(channel.TeamName, channel.Name, func(line []byte) bool {
 			header := &postHeader{}
@@ -530,6 +591,7 @@ func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected 
 		}
 	}
 
+	result := &archiveWriteResult{}
 	var fresh []*archivedPost
 	oldestFresh := int64(0)
 	for _, raw := range collected {
@@ -537,7 +599,14 @@ func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected 
 		if err := json.Unmarshal(raw, header); err != nil {
 			return nil, fmt.Errorf("commands: parsing post: %w", err)
 		}
-		if header.CreateAt <= readFrom {
+		// Everything collected is either already archived or about to be, so
+		// the newest of them is where the mark belongs.
+		if header.CreateAt > result.newestCreateAt {
+			result.newestCreateAt = header.CreateAt
+		}
+		// At the mark rather than past it: a post written in the same
+		// millisecond as the last one archived is only told apart by its id.
+		if header.CreateAt < readFrom {
 			continue
 		}
 		if _, isKnown := alreadyArchived[header.ID]; isKnown {
@@ -549,8 +618,9 @@ func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected 
 		}
 	}
 	if len(fresh) == 0 {
-		return nil, nil
+		return result, nil
 	}
+	result.fresh = fresh
 	sort.SliceStable(fresh, func(first, second int) bool {
 		return fresh[first].header.CreateAt < fresh[second].header.CreateAt
 	})
@@ -570,6 +640,14 @@ func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected 
 		}
 	}
 
+	// The attachment index is written first. A crash between the two writes
+	// then leaves a record for a post that is not archived yet, which the
+	// next run simply writes again, rather than an archived post whose
+	// attachments nothing will ever ask for: a later run skips that post as
+	// already archived and would never regenerate its records.
+	if err := store.AppendFiles(records); err != nil {
+		return nil, err
+	}
 	// New posts that all sit after what is on disk are appended. Anything
 	// older goes through a rewrite, so the file stays oldest first.
 	if oldestFresh >= newestOnDisk {
@@ -579,10 +657,15 @@ func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected 
 	} else if err := store.MergePosts(channel.TeamName, channel.Name, lines); err != nil {
 		return nil, err
 	}
-	if err := store.AppendFiles(records); err != nil {
-		return nil, err
-	}
-	return fresh, nil
+	return result, nil
+}
+
+// archiveWriteResult says what one channel's write did. It carries the posts
+// that were new to the archive, and the newest post the server showed, which
+// is where the next sync's mark belongs.
+type archiveWriteResult struct {
+	fresh          []*archivedPost
+	newestCreateAt int64
 }
 
 func archiveGetPosts(ctx context.Context, apiClient *model.Client4, path string) (*rawPostList, error) {

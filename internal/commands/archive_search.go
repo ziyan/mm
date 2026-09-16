@@ -95,6 +95,9 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 	if err != nil {
 		return err
 	}
+	if len(channelFiles) == 0 {
+		return fmt.Errorf("commands: %s holds no archived posts, run mm archive sync first", store.Directory())
+	}
 	var wantedFiles []*archive.ChannelFile
 	for _, channelFile := range channelFiles {
 		if channelSubstring != "" && !strings.Contains(channelFile.ChannelName, channelSubstring) {
@@ -105,12 +108,9 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 		}
 		wantedFiles = append(wantedFiles, channelFile)
 	}
-	if len(wantedFiles) == 0 {
-		return fmt.Errorf("commands: no archived channels match, is %s an archive directory", store.Directory())
-	}
 
 	found, err := searchChannelFiles(wantedFiles, func(line []byte) *searchedPost {
-		if matcher.canPrefilter && !matcher.matches(line) {
+		if matcher.prefilter != nil && !matcher.prefilter(line) {
 			return nil
 		}
 		post := &searchedPost{}
@@ -284,24 +284,30 @@ func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []by
 	return matches, firstError
 }
 
-// messageMatcher is the one test a search applies to a post's message. If
-// canPrefilter holds, the search also runs it over the raw JSON line first,
-// and parses a post only when it may match.
+// messageMatcher tests a post's message against the query, and where it can,
+// rules a post out from its raw JSON line first.
+//
+// The two tests are not the same. The line holds the message JSON-escaped,
+// alongside the rest of the post. A test that either of those can throw off
+// therefore does not belong in prefilter. It must rule a line out without
+// ever ruling a matching message out. A nil prefilter parses every post.
 type messageMatcher struct {
-	matches      func(text []byte) bool
-	canPrefilter bool
+	matches   func(text []byte) bool
+	prefilter func(line []byte) bool
 }
 
 // newMessageMatcher builds the test for a query. A plain query is a byte
 // search, which runs through the archive several times faster than a regular
 // expression compiled from the same text.
 //
-// The raw-line prefilter is only sound when the JSON escaping of the message
-// cannot change the answer: a quote, backslash, control character, or a
-// character an encoder may write as \uXXXX, is not stored as itself. A
-// regular expression is never prefiltered: its anchors and classes would bind
-// to the line rather than the message, and parsing every post is cheaper than
-// running it over every line anyway.
+// A prefilter only holds where the JSON escaping of the message cannot change
+// the answer. An encoder does not store a quote, a backslash, a control
+// character, or a character it may write as \uXXXX, as itself.
+//
+// A regular expression never runs over the line at all. Its anchors and
+// classes would bind to the line rather than to the message. Only the literal
+// its match must begin with runs there, which rules a line out without
+// claiming anything about the message.
 func newMessageMatcher(query string, isRegex, isCaseSensitive bool) (*messageMatcher, error) {
 	if isRegex {
 		expression := query
@@ -312,44 +318,39 @@ func newMessageMatcher(query string, isRegex, isCaseSensitive bool) (*messageMat
 		if err != nil {
 			return nil, fmt.Errorf("commands: compiling the query: %w", err)
 		}
-		// A case-sensitive expression opening with a literal cannot match a
-		// message whose line lacks that literal, so the line is tested for
-		// it first. There is no such prefix once case is folded.
-		prefix, _ := pattern.LiteralPrefix()
-		if prefix != "" && survivesJsonEscaping(prefix) {
+		matcher := &messageMatcher{matches: pattern.Match}
+		// Case folding leaves no literal prefix, so this is the
+		// case-sensitive expression only.
+		if prefix, _ := pattern.LiteralPrefix(); prefix != "" && survivesJsonEscaping(prefix) {
 			wanted := []byte(prefix)
-			return &messageMatcher{
-				matches: func(text []byte) bool {
-					return bytes.Contains(text, wanted) && pattern.Match(text)
-				},
-				canPrefilter: true,
-			}, nil
+			matcher.prefilter = func(line []byte) bool { return bytes.Contains(line, wanted) }
 		}
-		return &messageMatcher{matches: pattern.Match}, nil
+		return matcher, nil
 	}
 
-	canPrefilter := survivesJsonEscaping(query)
-	if isCaseSensitive {
+	var matches func(text []byte) bool
+	switch {
+	case isCaseSensitive:
 		wanted := []byte(query)
-		return &messageMatcher{
-			matches:      func(text []byte) bool { return bytes.Contains(text, wanted) },
-			canPrefilter: canPrefilter,
-		}, nil
-	}
-	wanted := []byte(strings.ToLower(query))
-	if !isAscii(query) {
+		matches = func(text []byte) bool { return bytes.Contains(text, wanted) }
+	case !isAscii(query):
 		// Case folding can change the length of a character outside ASCII,
-		// which the window comparison below cannot follow, so both sides are
-		// lowered in full. Rare enough that the copy per line is acceptable.
-		return &messageMatcher{
-			matches:      func(text []byte) bool { return bytes.Contains(bytes.ToLower(text), wanted) },
-			canPrefilter: canPrefilter,
-		}, nil
+		// which the window comparison in containsFold cannot follow, so both
+		// sides are lowered in full. Rare enough that the copy per line is
+		// acceptable.
+		wanted := []byte(strings.ToLower(query))
+		matches = func(text []byte) bool { return bytes.Contains(bytes.ToLower(text), wanted) }
+	default:
+		wanted := []byte(strings.ToLower(query))
+		matches = func(text []byte) bool { return containsFold(text, wanted) }
 	}
-	return &messageMatcher{
-		matches:      func(text []byte) bool { return containsFold(text, wanted) },
-		canPrefilter: canPrefilter,
-	}, nil
+	matcher := &messageMatcher{matches: matches}
+	if survivesJsonEscaping(query) {
+		// The same byte search, which is exactly a necessary condition: a
+		// line without the query cannot hold a message with it.
+		matcher.prefilter = matches
+	}
+	return matcher, nil
 }
 
 // survivesJsonEscaping reports whether text is stored as itself inside a JSON
@@ -402,7 +403,9 @@ func parseSearchDate(text string, isEndOfDay bool) (int64, error) {
 		return 0, fmt.Errorf("commands: parsing %q as a date (YYYY-MM-DD): %w", text, err)
 	}
 	if isEndOfDay {
-		parsed = parsed.Add(24*time.Hour - time.Millisecond)
+		// By the calendar, not by 24 hours: a day that gains or loses an hour
+		// to daylight saving would otherwise end at the wrong time.
+		parsed = parsed.AddDate(0, 0, 1).Add(-time.Millisecond)
 	}
 	return parsed.UnixMilli(), nil
 }
