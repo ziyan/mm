@@ -244,10 +244,13 @@ re-running is cheap and safe.
 mm archive sync ~/mattermost-archive              # fetch what is new
 mm archive sync ~/mattermost-archive --channels all   # public channels too, not only yours
 mm archive sync ~/mattermost-archive --files mine     # also download your own attachments
+mm archive sync ~/mattermost-archive --files all --max-file-mb 5  # everyone's, skipping the big ones
+mm archive sync ~/mattermost-archive --skip-posts --files mine    # attachments only, for posts already archived
 mm archive sync ~/mattermost-archive --only backend   # just the channels whose name matches
 mm archive sync ~/mattermost-archive --full           # ignore the high-water marks, re-read everything
 mm archive sync ~/mattermost-archive --since 2026-08-01  # re-read back to a date and merge, to fill a gap
 mm archive sync ~/mattermost-archive --workers 16     # read more channels at once
+mm archive sync ~/mattermost-archive --exclude mon-   # skip some channels, just this once
 
 mm archive exclude ~/mattermost-archive           # what a sync leaves alone
 mm archive exclude ~/mattermost-archive mon-testing   # and stop reading this one

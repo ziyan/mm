@@ -159,10 +159,20 @@ func TestIntegrationArchiveSearchFilters(t *testing.T) {
 		t.Errorf("searching as an unknown user should have failed")
 	}
 
-	// A channel filter that matches nothing is an error, not an empty result
-	// that looks like the archive holds nothing.
-	if _, err := runCommand("archive", "search", directory, "cat", "--user", "", "--channel", "nosuchchannel"); err == nil {
-		t.Errorf("a channel filter matching no channel should have failed")
+	// A channel filter that matches nothing is a result of nothing, not an
+	// error: the filter is the user's own, and an archive that does not hold
+	// what they asked for is an answer.
+	output, err = runCommand("archive", "search", directory, "cat", "--user", "", "--channel", "nosuchchannel")
+	if err != nil {
+		t.Fatalf("a channel filter matching nothing should not have failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "No matches") {
+		t.Errorf("expected no matches for a channel filter matching nothing, got: %s", output)
+	}
+
+	// A directory that is not an archive is still an error.
+	if _, err := runCommand("archive", "search", t.TempDir(), "cat", "--channel", "", "--user", ""); err == nil {
+		t.Errorf("searching a directory that is not an archive should have failed")
 	}
 }
 
