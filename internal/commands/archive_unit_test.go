@@ -428,3 +428,41 @@ func TestArchiveWithoutExcluded(t *testing.T) {
 		t.Errorf("no patterns must keep everything, got %d skipped", skipped)
 	}
 }
+
+// TestArchiveWritePostsFailureStopsTheRun covers a disk that cannot be written
+// to. That is the archive being broken, not one channel the server declined,
+// and a sync must not report it as unreadable and then claim success.
+func TestArchiveWritePostsFailureStopsTheRun(t *testing.T) {
+	directory := t.TempDir()
+	store, err := archive.Create(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(map[string]*archive.ChannelState{}); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing further can be written under here.
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Skipf("cannot make the directory read-only: %v", err)
+	}
+	defer func() { _ = os.Chmod(directory, 0o700) }()
+
+	channel := &archiveChannel{ID: "channel1", Name: "backend", TeamName: "engineering"}
+	work := &archiveChannelWork{channel: channel}
+	outcome := archiveSyncChannelWrite(store, work, map[string]json.RawMessage{
+		"post1": rawPost("post1", 100, "first"),
+	})
+	if outcome.writeError == nil {
+		t.Fatal("a write into a read-only archive should have failed")
+	}
+	if outcome.err != nil {
+		t.Errorf("a write failure is not the server declining to read: %v", outcome.err)
+	}
+	counts := &archiveSyncCounts{}
+	if err := archiveRecordChannel(store, map[string]*archive.ChannelState{}, outcome, counts); err == nil {
+		t.Error("recording a write failure should have returned an error, not counted it unreadable")
+	}
+	if counts.unreadableCount != 0 {
+		t.Errorf("a write failure must not be counted as unreadable, got %d", counts.unreadableCount)
+	}
+}

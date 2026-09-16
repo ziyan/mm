@@ -290,3 +290,17 @@ func TestOpenRequiresAnArchive(t *testing.T) {
 		t.Fatalf("a synced directory must open: %v", err)
 	}
 }
+
+func TestSafeNameStaysWithinItsCap(t *testing.T) {
+	// A name of nothing but dots is replaced, and the replacement is capped
+	// like any other: the clamp has to come last.
+	if length := len(SafeName(strings.Repeat(".", 200))); length > MaximumNameLength {
+		t.Errorf("a long run of dots came back %d characters, past the cap of %d", length, MaximumNameLength)
+	}
+	if name := SafeName(".."); name == ".." || strings.Trim(name, ".") == "" {
+		t.Errorf("the parent directory must not survive SafeName, got %q", name)
+	}
+	if SafeName(".") == SafeName("..") {
+		t.Error("two different dot names must not collapse into one")
+	}
+}

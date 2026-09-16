@@ -24,15 +24,16 @@ const (
 	archivePageSize      = 200
 	archiveRetryCount    = 5
 	archiveStateInterval = 20
+	archiveFileInterval  = 200
+
+	archiveFileScopeNone = "none"
+	archiveFileScopeMine = "mine"
+	archiveFileScopeAll  = "all"
 
 	// archiveDefaultWorkers is how many channels a sync reads at once. Every
 	// request is a round trip to the server, so reading one channel at a time
 	// spends nearly all of a sync waiting. Four is well inside what a server
 	// shared with other people will answer without complaint.
-	archiveFileScopeNone = "none"
-	archiveFileScopeMine = "mine"
-	archiveFileScopeAll  = "all"
-
 	archiveDefaultWorkers = 4
 	archiveMaximumWorkers = 32
 
@@ -185,7 +186,9 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 		return fmt.Errorf("commands: --files must be none, mine, or all")
 	}
 
-	me, _, err := apiClient.GetMe(ctx, "")
+	meCtx, cancelMe := context.WithTimeout(ctx, archiveRequestTimeout)
+	me, _, err := apiClient.GetMe(meCtx, "")
+	cancelMe()
 	if err != nil {
 		return fmt.Errorf("commands: reading the current user: %w", err)
 	}
@@ -255,7 +258,9 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 // was archived under, so a rename on the server, or a username change, does
 // not start a second file beside the first.
 func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, channelScope, onlySubstring string, usernames map[string]string, state map[string]*archive.ChannelState) ([]*archiveChannel, error) {
-	teams, _, err := apiClient.GetTeamsForUser(ctx, userId, "")
+	teamsCtx, cancelTeams := context.WithTimeout(ctx, archiveRequestTimeout)
+	teams, _, err := apiClient.GetTeamsForUser(teamsCtx, userId, "")
+	cancelTeams()
 	if err != nil {
 		return nil, fmt.Errorf("commands: listing teams: %w", err)
 	}
@@ -321,6 +326,12 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 				default:
 					continue
 				}
+				// The name a channel is skipped under is nobody's to claim,
+				// so this comes before any claim is recorded: a channel out
+				// of scope must not push one in scope into a suffix.
+				if onlySubstring != "" && !strings.Contains(channel.Name, onlySubstring) {
+					continue
+				}
 				if previous, isKnown := state[header.ID]; isKnown && previous.TeamName != "" && previous.ChannelName != "" {
 					channel.TeamName = previous.TeamName
 					channel.Name = previous.ChannelName
@@ -328,9 +339,6 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 					channel.Name = archiveDisambiguateName(channel.Name, channel.ID)
 				}
 				claimedBy[archivePathKey(channel.TeamName, channel.Name)] = channel.ID
-				if onlySubstring != "" && !strings.Contains(channel.Name, onlySubstring) {
-					continue
-				}
 				seen[header.ID] = struct{}{}
 				withTeam, err := archiveAddTeamName(raw, channel.TeamName)
 				if err != nil {
@@ -516,7 +524,12 @@ type archiveChannelOutcome struct {
 	work         *archiveChannelWork
 	lastCreateAt int64
 	fresh        []*archivedPost
-	err          error
+	// err is the server declining to hand this channel over, which costs one
+	// channel. writeError is the archive itself being unwritable, which costs
+	// the run: a full disk would otherwise be reported channel by channel as
+	// if the server were at fault, and the sync would still claim success.
+	err        error
+	writeError error
 }
 
 // archiveSyncOptions is what the flags asked of one sync.
@@ -672,7 +685,7 @@ func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *ar
 		switch {
 		case outcome.channel != nil:
 			if err := archiveRecordChannel(store, state, outcome.channel, counts); err != nil {
-				return err
+				return archiveStopWith(store, state, err)
 			}
 			var added []*archiveTask
 			for _, fileId := range outcome.newFileIds {
@@ -687,13 +700,14 @@ func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *ar
 				fileCount += len(added)
 				more <- added
 			}
+			counts.reportChannel(channelCount, fileCount)
 		case outcome.file != nil:
 			if outcome.file.writeError != nil {
-				return outcome.file.writeError
+				return archiveStopWith(store, state, outcome.file.writeError)
 			}
 			archiveRecordFile(outcome.file, counts)
+			counts.reportFile(channelCount, fileCount)
 		}
-		counts.report(channelCount, fileCount)
 		if pending == 0 {
 			close(more)
 		}
@@ -734,16 +748,29 @@ type archiveSyncCounts struct {
 	savedBytes       int64
 }
 
-func (self *archiveSyncCounts) report(channelCount, fileCount int) {
-	if self.channelsDone > 0 && self.channelsDone%archiveStateInterval == 0 && self.filesDone == 0 {
+// reportChannel and reportFile each speak for the tally that just moved.
+// Channels and attachments share one pool and interleave, so a single test
+// over both would go quiet the moment the other kind started arriving.
+func (self *archiveSyncCounts) reportChannel(channelCount, fileCount int) {
+	if self.channelsDone%archiveStateInterval == 0 {
+		self.print(channelCount, fileCount)
+	}
+}
+
+func (self *archiveSyncCounts) reportFile(channelCount, fileCount int) {
+	if self.filesDone%archiveFileInterval == 0 {
+		self.print(channelCount, fileCount)
+	}
+}
+
+func (self *archiveSyncCounts) print(channelCount, fileCount int) {
+	if fileCount == 0 {
 		printer.PrintInfo("  %d/%d channels, %d new posts", self.channelsDone, channelCount, self.newPostCount)
 		return
 	}
-	if self.filesDone > 0 && self.filesDone%200 == 0 {
-		printer.PrintInfo("  %d/%d channels, %d new posts, %d/%d attachments, %.2f GB",
-			self.channelsDone, channelCount, self.newPostCount, self.filesDone, fileCount,
-			float64(self.savedBytes)/1e9)
-	}
+	printer.PrintInfo("  %d/%d channels, %d new posts, %d/%d attachments, %.2f GB",
+		self.channelsDone, channelCount, self.newPostCount, self.filesDone, fileCount,
+		float64(self.savedBytes)/1e9)
 }
 
 func (self *archiveSyncCounts) summarize(options *archiveSyncOptions) {
@@ -755,10 +782,23 @@ func (self *archiveSyncCounts) summarize(options *archiveSyncOptions) {
 	}
 }
 
+// archiveStopWith ends a run on an error, keeping the marks for the channels
+// that did finish. Their posts are on disk, and a later run should not read
+// them again.
+func archiveStopWith(store *archive.Store, state map[string]*archive.ChannelState, cause error) error {
+	if err := store.SaveState(state); err != nil {
+		return fmt.Errorf("commands: saving the state after %w also failed: %v", cause, err)
+	}
+	return cause
+}
+
 // archiveRecordChannel takes one channel's outcome into the state.
 func archiveRecordChannel(store *archive.Store, state map[string]*archive.ChannelState, outcome *archiveChannelOutcome, counts *archiveSyncCounts) error {
 	channel := outcome.work.channel
 	counts.channelsDone++
+	if outcome.writeError != nil {
+		return fmt.Errorf("commands: writing %s/%s: %w", channel.TeamName, channel.Name, outcome.writeError)
+	}
 	if outcome.err != nil {
 		printer.PrintInfo("  cannot read %s/%s: %v", channel.TeamName, channel.Name, outcome.err)
 		counts.unreadableCount++
@@ -851,10 +891,16 @@ func archiveSyncChannel(ctx context.Context, apiClient *model.Client4, store *ar
 	if len(collected) == 0 {
 		return outcome
 	}
+	return archiveSyncChannelWrite(store, work, collected)
+}
+
+// archiveSyncChannelWrite writes what a read collected for one channel.
+func archiveSyncChannelWrite(store *archive.Store, work *archiveChannelWork, collected map[string]json.RawMessage) *archiveChannelOutcome {
+	outcome := &archiveChannelOutcome{work: work, lastCreateAt: work.since}
 	written, err := archiveWritePosts(store, work.channel, collected, work.readFrom,
 		work.readFrom < work.since || work.since == 0)
 	if err != nil {
-		outcome.err = err
+		outcome.writeError = err
 		return outcome
 	}
 	outcome.fresh = written.fresh
@@ -1129,7 +1175,9 @@ func archiveGetPosts(ctx context.Context, apiClient *model.Client4, path string)
 func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *archive.Store) (map[string]string, error) {
 	var users []*model.User
 	for page := 0; ; page++ {
-		batch, _, err := apiClient.GetUsers(ctx, page, archivePageSize, "")
+		pageCtx, cancel := context.WithTimeout(ctx, archiveRequestTimeout)
+		batch, _, err := apiClient.GetUsers(pageCtx, page, archivePageSize, "")
+		cancel()
 		if err != nil {
 			return nil, fmt.Errorf("commands: listing users: %w", err)
 		}

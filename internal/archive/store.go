@@ -179,11 +179,13 @@ func (self *Store) FilesPath() string {
 // rather than handing it back.
 func SafeName(name string) string {
 	safe := unsafeNameCharacters.ReplaceAllString(name, "_")
+	if safe == "" || strings.Trim(safe, ".") == "" {
+		// One more character than the dots it stands in for, so two names
+		// differing only in length do not become the same name.
+		safe = strings.Repeat("_", len(safe)+1)
+	}
 	if len(safe) > MaximumNameLength {
 		safe = safe[:MaximumNameLength]
-	}
-	if safe == "" || strings.Trim(safe, ".") == "" {
-		return strings.Repeat("_", len(safe)+1)
 	}
 	return safe
 }
