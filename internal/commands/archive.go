@@ -32,6 +32,15 @@ const (
 	archiveDefaultWorkers = 4
 	archiveMaximumWorkers = 32
 
+	// archiveRequestTimeout is how long one request may take, from asking to
+	// the last byte of the answer. It is far longer than any of these
+	// responses needs, and it is there to end a wait that would not end.
+	archiveRequestTimeout = 5 * time.Minute
+
+	// archiveDownloadTimeout bounds one attachment, which may run to tens of
+	// megabytes over a slow link, so it gets longer than a page of posts.
+	archiveDownloadTimeout = 15 * time.Minute
+
 	// Direct and group message channels belong to no team. The sync files
 	// them under these names instead.
 	archiveDirectTeamName = "direct"
@@ -197,7 +206,7 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	}
 
 	if fileScope != "none" {
-		if err := archiveSyncFiles(ctx, apiClient, store, me, fileScope, maximumFileMegabytes); err != nil {
+		if err := archiveSyncFiles(ctx, apiClient, store, me, fileScope, maximumFileMegabytes, workerCount); err != nil {
 			return err
 		}
 	}
@@ -781,7 +790,7 @@ func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *arch
 	return usernames, nil
 }
 
-func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *archive.Store, me *model.User, fileScope string, maximumFileMegabytes float64) error {
+func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *archive.Store, me *model.User, fileScope string, maximumFileMegabytes float64, workerCount int) error {
 	wanted, err := store.ReferencedFileIDs()
 	if err != nil {
 		return err
@@ -822,39 +831,91 @@ func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *arch
 	printer.PrintInfo("%d attachments to fetch in scope %q", len(todo), fileScope)
 
 	maximumBytes := int64(maximumFileMegabytes * 1024 * 1024)
-	savedCount, tooBigCount, unavailableCount := 0, 0, 0
+	queue := make(chan string)
+	outcomes := make(chan *archiveFileOutcome)
+
+	// Downloading is waiting on the network too, so the same worker count
+	// applies. Each attachment is a file of its own, so the workers share
+	// nothing but the counters the loop below keeps.
+	var waitGroup sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for fileId := range queue {
+				outcomes <- archiveDownloadFile(ctx, apiClient, filesDirectory, fileId, maximumBytes)
+			}
+		}()
+	}
+	go func() {
+		for _, fileId := range todo {
+			queue <- fileId
+		}
+		close(queue)
+		waitGroup.Wait()
+		close(outcomes)
+	}()
+
+	savedCount, tooBigCount, unavailableCount, doneCount := 0, 0, 0, 0
 	var savedBytes int64
-	for index, fileId := range todo {
-		info, _, err := apiClient.GetFileInfo(ctx, fileId)
-		if err != nil {
-			log.Warningf("attachment %s unavailable: %v", fileId, err)
-			unavailableCount++
-			continue
-		}
-		if info.Size > maximumBytes {
+	for outcome := range outcomes {
+		doneCount++
+		switch {
+		case outcome.writeError != nil:
+			return outcome.writeError
+		case outcome.isTooBig:
 			tooBigCount++
-			continue
-		}
-		content, _, err := apiClient.DownloadFile(ctx, fileId, true)
-		if err != nil {
-			log.Warningf("attachment %s (%s) unavailable: %v", fileId, info.Name, err)
+		case outcome.isUnavailable:
 			unavailableCount++
-			continue
+		default:
+			savedCount++
+			savedBytes += outcome.savedBytes
 		}
-		path := filepath.Join(filesDirectory, fileId+"__"+archive.SafeName(info.Name))
-		if err := os.WriteFile(path, content, 0o644); err != nil {
-			return fmt.Errorf("commands: writing %s: %w", path, err)
-		}
-		savedCount++
-		savedBytes += int64(len(content))
-		if (index+1)%200 == 0 {
+		if doneCount%200 == 0 {
 			printer.PrintInfo("  %d/%d attachments, %d saved, %.2f GB",
-				index+1, len(todo), savedCount, float64(savedBytes)/1e9)
+				doneCount, len(todo), savedCount, float64(savedBytes)/1e9)
 		}
 	}
 	printer.PrintInfo("%d attachments saved (%.2f GB), %d over %.0f MB, %d unavailable",
 		savedCount, float64(savedBytes)/1e9, tooBigCount, maximumFileMegabytes, unavailableCount)
 	return nil
+}
+
+// archiveFileOutcome is what came back for one attachment. A failed write
+// means the archive itself is unwritable, which stops the run. A failed
+// download means the server will not hand that one over, which does not.
+type archiveFileOutcome struct {
+	savedBytes    int64
+	isTooBig      bool
+	isUnavailable bool
+	writeError    error
+}
+
+// archiveDownloadFile fetches one attachment and writes it, under a deadline
+// of its own so a connection that goes quiet costs one attachment rather than
+// the rest of the run.
+func archiveDownloadFile(ctx context.Context, apiClient *model.Client4, filesDirectory, fileId string, maximumBytes int64) *archiveFileOutcome {
+	attemptCtx, cancel := context.WithTimeout(ctx, archiveDownloadTimeout)
+	defer cancel()
+
+	info, _, err := apiClient.GetFileInfo(attemptCtx, fileId)
+	if err != nil {
+		log.Warningf("attachment %s unavailable: %v", fileId, err)
+		return &archiveFileOutcome{isUnavailable: true}
+	}
+	if info.Size > maximumBytes {
+		return &archiveFileOutcome{isTooBig: true}
+	}
+	content, _, err := apiClient.DownloadFile(attemptCtx, fileId, true)
+	if err != nil {
+		log.Warningf("attachment %s (%s) unavailable: %v", fileId, info.Name, err)
+		return &archiveFileOutcome{isUnavailable: true}
+	}
+	path := filepath.Join(filesDirectory, fileId+"__"+archive.SafeName(info.Name))
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		return &archiveFileOutcome{writeError: fmt.Errorf("commands: writing %s: %w", path, err)}
+	}
+	return &archiveFileOutcome{savedBytes: int64(len(content))}
 }
 
 // archiveOwnFileIds reads the attachment ids on the user's own posts out of the
@@ -973,29 +1034,47 @@ func archiveGetPages(ctx context.Context, apiClient *model.Client4, path string,
 // worth retrying. A 4xx other than 408 or 429 is the server saying no, and
 // asking again with the same request and the same token will not change its
 // mind, so it is returned as is.
+//
+// Every attempt carries a deadline. A connection that goes quiet without
+// closing would otherwise stop a sync for good, and a sync reading channels
+// in parallel has several requests in flight to lose that way. The deadline
+// covers reading the body as well as waiting for the response, since a server
+// can send headers and then stop.
 func archiveGet(ctx context.Context, apiClient *model.Client4, path string) ([]byte, error) {
 	var lastError error
 	for attempt := 0; attempt < archiveRetryCount; attempt++ {
-		response, err := apiClient.DoAPIGet(ctx, path, "")
+		body, response, err := archiveGetOnce(ctx, apiClient, path)
 		if err == nil {
-			body, readError := readBody(response)
-			if readError == nil {
-				return body, nil
-			}
-			lastError = readError
-		} else {
-			if response != nil && response.StatusCode >= http.StatusBadRequest &&
-				response.StatusCode < http.StatusInternalServerError &&
-				response.StatusCode != http.StatusTooManyRequests && response.StatusCode != http.StatusRequestTimeout {
-				return nil, fmt.Errorf("commands: reading %s: %w", path, err)
-			}
-			lastError = err
+			return body, nil
 		}
+		if response != nil && response.StatusCode >= http.StatusBadRequest &&
+			response.StatusCode < http.StatusInternalServerError &&
+			response.StatusCode != http.StatusTooManyRequests && response.StatusCode != http.StatusRequestTimeout {
+			return nil, fmt.Errorf("commands: reading %s: %w", path, err)
+		}
+		lastError = err
 		if attempt < archiveRetryCount-1 {
 			time.Sleep(time.Duration(2*(attempt+1)) * time.Second)
 		}
 	}
 	return nil, fmt.Errorf("commands: reading %s: %w", path, lastError)
+}
+
+// archiveGetOnce makes one attempt, under a deadline of its own. It hands back
+// the response alongside the error so the caller can tell a refusal, which is
+// worth giving up on, from a failure worth trying again.
+func archiveGetOnce(ctx context.Context, apiClient *model.Client4, path string) ([]byte, *http.Response, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, archiveRequestTimeout)
+	defer cancel()
+	response, err := apiClient.DoAPIGet(attemptCtx, path, "")
+	if err != nil {
+		return nil, response, err
+	}
+	body, err := readBody(response)
+	if err != nil {
+		return nil, nil, err
+	}
+	return body, nil, nil
 }
 
 func readBody(response *http.Response) ([]byte, error) {

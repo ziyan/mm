@@ -247,6 +247,7 @@ mm archive sync ~/mattermost-archive --files mine     # also download your own a
 mm archive sync ~/mattermost-archive --only backend   # just the channels whose name matches
 mm archive sync ~/mattermost-archive --full           # ignore the high-water marks, re-read everything
 mm archive sync ~/mattermost-archive --since 2026-08-01  # re-read back to a date and merge, to fill a gap
+mm archive sync ~/mattermost-archive --workers 16     # read more channels at once
 
 mm archive status ~/mattermost-archive            # what the archive holds
 mm archive search ~/mattermost-archive "deadlock" # search it offline
@@ -288,6 +289,13 @@ written after the mark was also updated after it.
 merges what it finds with what is on disk, keeping both, so a gap an older sync
 left is filled without disturbing anything already archived. An ordinary sync
 cannot do this, because it never looks behind its own high-water mark.
+
+A sync is almost entirely waiting on the network: every request is a round
+trip, and a channel costs one to ask whether it has anything new plus one for
+every 200 posts it has. It therefore reads `--workers` channels at once, four
+by default, and downloads attachments the same way. Raising it helps in
+proportion until the server becomes the limit, so 16 is reasonable against a
+server that is not busy.
 
 Paging is by offset over a live channel, so a post written while a sync is
 walking that channel can shift the window and be missed. A later sync does not
