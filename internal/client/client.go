@@ -25,6 +25,7 @@ func New() (*model.Client4, *config.ServerProfile, error) {
 	serverUrl = strings.TrimRight(serverUrl, "/")
 	apiClient := model.NewAPIv4Client(serverUrl)
 	apiClient.SetToken(server.Token)
+	apiClient.HTTPClient.Transport = newTransport()
 	if server.Readonly {
 		base := apiClient.HTTPClient.Transport
 		if base == nil {
@@ -46,4 +47,23 @@ func WebSocketURL(serverUrl string) string {
 		url = "wss://" + url
 	}
 	return url
+}
+
+// maximumIdleConnections is how many connections to one server the client
+// keeps open. The default of two is enough for a command that makes one
+// request at a time. It is not enough for an archive sync reading several
+// channels at once, which would otherwise pay a TLS handshake per request.
+const maximumIdleConnections = 32
+
+// newTransport is the standard transport, kept warm for several callers at
+// once. It is a copy, so nothing here changes the default for anyone else.
+func newTransport() http.RoundTripper {
+	transport, isStandard := http.DefaultTransport.(*http.Transport)
+	if !isStandard {
+		return http.DefaultTransport
+	}
+	cloned := transport.Clone()
+	cloned.MaxIdleConns = maximumIdleConnections * 2
+	cloned.MaxIdleConnsPerHost = maximumIdleConnections
+	return cloned
 }

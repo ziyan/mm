@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
@@ -23,6 +24,13 @@ const (
 	archivePageSize      = 200
 	archiveRetryCount    = 5
 	archiveStateInterval = 20
+
+	// archiveDefaultWorkers is how many channels a sync reads at once. Every
+	// request is a round trip to the server, so reading one channel at a time
+	// spends nearly all of a sync waiting. Four is well inside what a server
+	// shared with other people will answer without complaint.
+	archiveDefaultWorkers = 4
+	archiveMaximumWorkers = 32
 
 	// Direct and group message channels belong to no team. The sync files
 	// them under these names instead.
@@ -53,6 +61,7 @@ func init() {
 	syncCommand.Flags().String("only", "", "Only channels whose name contains this substring")
 	syncCommand.Flags().Bool("full", false, "Ignore the high-water marks and re-read every channel from the start")
 	syncCommand.Flags().String("since", "", "Re-read every channel back to this date (YYYY-MM-DD) and merge, to fill gaps an earlier sync left")
+	syncCommand.Flags().Int("workers", archiveDefaultWorkers, "How many channels to read at once")
 
 	searchCommand := &cobra.Command{
 		Use:   "search <directory> <query>",
@@ -137,6 +146,10 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	if err != nil {
 		return err
 	}
+	workerCount, _ := command.Flags().GetInt("workers")
+	if workerCount < 1 || workerCount > archiveMaximumWorkers {
+		return fmt.Errorf("commands: --workers must be between 1 and %d", archiveMaximumWorkers)
+	}
 
 	if channelScope != "mine" && channelScope != "public" && channelScope != "all" {
 		return fmt.Errorf("commands: --channels must be mine, public, or all")
@@ -178,7 +191,7 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	printer.PrintInfo("%d channels to consider", len(channels))
 
 	if !shouldSkipPosts {
-		if err := archiveSyncPosts(ctx, apiClient, store, channels, state, isFullSync, repairSince); err != nil {
+		if err := archiveSyncPosts(ctx, apiClient, store, channels, state, isFullSync, repairSince, workerCount); err != nil {
 			return err
 		}
 	}
@@ -355,65 +368,100 @@ func archiveAddTeamName(raw json.RawMessage, teamName string) (json.RawMessage, 
 	return merged, nil
 }
 
-func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, state map[string]*archive.ChannelState, isFullSync bool, repairSince int64) error {
-	newPostCount, unreadableCount := 0, 0
-	for index, channel := range channels {
-		since := int64(0)
-		if previous, isKnown := state[channel.ID]; isKnown {
-			since = previous.LastCreateAt
-		}
+// archiveChannelWork is one channel to read, with where to read it from
+// worked out from the state before any worker touches it.
+type archiveChannelWork struct {
+	channel  *archiveChannel
+	since    int64
+	readFrom int64
+}
 
-		// Where to read back to. A full sync ignores the mark; a repair reads
-		// back past it; a channel with no mark is read from the beginning
-		// whatever the flags say, since anything less would leave it with a
-		// mark that claims a history it never fetched.
-		readFrom := since
+// archiveChannelOutcome is what came back for one channel.
+type archiveChannelOutcome struct {
+	work         *archiveChannelWork
+	lastCreateAt int64
+	freshCount   int
+	err          error
+}
+
+func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, state map[string]*archive.ChannelState, isFullSync bool, repairSince int64, workerCount int) error {
+	// Where each channel is read from is worked out here, before any other
+	// goroutine runs. The state map is written by the loop at the bottom as
+	// outcomes arrive, and nothing else may be reading it by then.
+	works := make([]*archiveChannelWork, 0, len(channels))
+	for _, channel := range channels {
+		work := &archiveChannelWork{channel: channel}
+		if previous, isKnown := state[channel.ID]; isKnown {
+			work.since = previous.LastCreateAt
+		}
+		// A full sync ignores the mark; a repair reads back past it; a
+		// channel with no mark is read from the beginning whatever the flags
+		// say, since anything less would leave it with a mark that claims a
+		// history it never fetched.
+		work.readFrom = work.since
 		switch {
 		case isFullSync:
-			readFrom = 0
-		case repairSince > 0 && since > 0 && repairSince < since:
-			readFrom = repairSince
+			work.readFrom = 0
+		case repairSince > 0 && work.since > 0 && repairSince < work.since:
+			work.readFrom = repairSince
 		}
+		works = append(works, work)
+	}
 
-		collected, err := archiveReadChannel(ctx, apiClient, channel.ID, readFrom)
-		if err != nil {
-			printer.PrintInfo("  cannot read %s/%s: %v", channel.TeamName, channel.Name, err)
+	queue := make(chan *archiveChannelWork)
+	outcomes := make(chan *archiveChannelOutcome)
+
+	// Reading a channel is one network round trip after another, so the
+	// workers are there to have several in flight rather than to use the
+	// processor. Each writes its own channel's file, and the store guards
+	// what they share.
+	var waitGroup sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for work := range queue {
+				outcomes <- archiveSyncChannel(ctx, apiClient, store, work)
+			}
+		}()
+	}
+	go func() {
+		for _, work := range works {
+			queue <- work
+		}
+		close(queue)
+		waitGroup.Wait()
+		close(outcomes)
+	}()
+
+	// The state map belongs to this loop alone from here on.
+	newPostCount, unreadableCount, doneCount := 0, 0, 0
+	for outcome := range outcomes {
+		channel := outcome.work.channel
+		doneCount++
+		if outcome.err != nil {
+			printer.PrintInfo("  cannot read %s/%s: %v", channel.TeamName, channel.Name, outcome.err)
 			unreadableCount++
 			continue
 		}
-
-		lastCreateAt := since
-		if len(collected) > 0 {
-			written, err := archiveWritePosts(store, channel, collected, readFrom, readFrom < since || since == 0)
-			if err != nil {
-				return err
-			}
-			newPostCount += len(written.fresh)
-			// The mark follows the newest post the server showed, new to the
-			// archive or not. A run cut short re-reads posts it already has,
-			// and a mark that only ever followed new ones would sit behind
-			// that channel's file and page it from there on every later sync.
-			if written.newestCreateAt > lastCreateAt {
-				lastCreateAt = written.newestCreateAt
-			}
-		}
+		newPostCount += outcome.freshCount
 
 		state[channel.ID] = &archive.ChannelState{
 			TeamName:     channel.TeamName,
 			ChannelName:  channel.Name,
-			LastCreateAt: lastCreateAt,
+			LastCreateAt: outcome.lastCreateAt,
 			IsArchived:   channel.DeleteAt != 0,
 		}
 		// The mark is saved as soon as the posts it covers are on disk. A run
 		// cut short between the two would otherwise read those posts again
 		// and, on the ordinary append path, store them twice.
-		if lastCreateAt != since {
+		if outcome.lastCreateAt != outcome.work.since {
 			if err := store.SaveState(state); err != nil {
 				return err
 			}
 		}
-		if (index+1)%archiveStateInterval == 0 {
-			printer.PrintInfo("  %d/%d channels, %d new posts", index+1, len(channels), newPostCount)
+		if doneCount%archiveStateInterval == 0 {
+			printer.PrintInfo("  %d/%d channels, %d new posts", doneCount, len(channels), newPostCount)
 		}
 	}
 
@@ -422,6 +470,34 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 	}
 	printer.PrintInfo("%d new posts, %d channels unreadable", newPostCount, unreadableCount)
 	return nil
+}
+
+// archiveSyncChannel reads one channel and writes what is new to it.
+func archiveSyncChannel(ctx context.Context, apiClient *model.Client4, store *archive.Store, work *archiveChannelWork) *archiveChannelOutcome {
+	outcome := &archiveChannelOutcome{work: work, lastCreateAt: work.since}
+	collected, err := archiveReadChannel(ctx, apiClient, work.channel.ID, work.readFrom)
+	if err != nil {
+		outcome.err = err
+		return outcome
+	}
+	if len(collected) == 0 {
+		return outcome
+	}
+	written, err := archiveWritePosts(store, work.channel, collected, work.readFrom,
+		work.readFrom < work.since || work.since == 0)
+	if err != nil {
+		outcome.err = err
+		return outcome
+	}
+	outcome.freshCount = len(written.fresh)
+	// The mark follows the newest post the server showed, new to the archive
+	// or not. A run cut short re-reads posts it already has, and a mark that
+	// only ever followed new ones would sit behind that channel's file and
+	// page it from there on every later sync.
+	if written.newestCreateAt > outcome.lastCreateAt {
+		outcome.lastCreateAt = written.newestCreateAt
+	}
+	return outcome
 }
 
 // archiveReadChannel returns the posts of one channel newer than the mark,

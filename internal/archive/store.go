@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/mattermost/mattermost/server/public/model"
 )
@@ -77,9 +78,13 @@ type ArchivedFile struct {
 	CreateAt    int64  `json:"create_at"`
 }
 
-// Store is one archive directory.
+// Store is one archive directory. Several goroutines may call its methods at
+// once, since a sync reads several channels in parallel. Each of those writes
+// its own posts file. The lock below guards what they share, the attachment
+// index and the state.
 type Store struct {
 	directory string
+	lock      sync.Mutex
 }
 
 // Open prepares an existing archive directory. A command that only reads the
@@ -483,6 +488,8 @@ func (self *Store) AppendFiles(records []*ArchivedFile) error {
 	if len(records) == 0 {
 		return nil
 	}
+	self.lock.Lock()
+	defer self.lock.Unlock()
 	file, err := os.OpenFile(self.FilesPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("archive: opening %s: %w", self.FilesPath(), err)
@@ -630,6 +637,8 @@ func (self *Store) readJson(name string, target interface{}) error {
 }
 
 func (self *Store) writeJson(name string, value interface{}) error {
+	self.lock.Lock()
+	defer self.lock.Unlock()
 	path := filepath.Join(self.directory, name)
 	content, err := json.Marshal(value)
 	if err != nil {
