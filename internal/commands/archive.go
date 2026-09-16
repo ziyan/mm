@@ -43,7 +43,7 @@ func init() {
 	}
 	syncCommand.Flags().String("channels", "mine", "Which channels to read: mine, public, or all")
 	syncCommand.Flags().String("files", "none", "Which attachments to download: none, mine, or all")
-	syncCommand.Flags().Float64("max-file-mb", 25, "Skip attachments larger than this many megabytes")
+	syncCommand.Flags().Float64("max-file-mb", 50, "Skip attachments larger than this many megabytes")
 	syncCommand.Flags().Bool("skip-posts", false, "Go straight to attachments, using the posts already archived")
 	syncCommand.Flags().String("only", "", "Only channels whose name contains this substring")
 	syncCommand.Flags().Bool("full", false, "Ignore the high-water marks and re-read every channel from the start")
@@ -56,6 +56,9 @@ func init() {
 		RunE:  archiveSearchRun,
 	}
 	searchCommand.Flags().StringP("channel", "c", "", "Only channels whose name contains this substring")
+	// Shadows the root --team override on purpose: an offline search has no
+	// active team to override, and here the flag narrows the archive instead.
+	searchCommand.Flags().StringP("team", "T", "", "Only teams whose name contains this substring")
 	searchCommand.Flags().StringP("user", "u", "", "Only posts written by this username")
 	searchCommand.Flags().String("since", "", "Only posts on or after this date (YYYY-MM-DD)")
 	searchCommand.Flags().String("until", "", "Only posts before or on this date (YYYY-MM-DD)")
@@ -108,7 +111,7 @@ type archiveChannel struct {
 }
 
 func archiveSyncRun(command *cobra.Command, arguments []string) error {
-	store, err := archive.Open(arguments[0])
+	store, err := archive.Create(arguments[0])
 	if err != nil {
 		return err
 	}
@@ -272,9 +275,6 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 	if err != nil {
 		return err
 	}
-	if isFullSync {
-		state = map[string]*archive.ChannelState{}
-	}
 
 	newPostCount, unreadableCount := 0, 0
 	for index, channel := range channels {
@@ -283,11 +283,15 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 			since = previous.LastCreateAt
 		}
 
-		// A repair reads back past the mark, so it has to merge with what is
-		// already on disk rather than append to it.
+		// Where to read back to. A full sync ignores the mark; a repair reads
+		// back past it; a channel with no mark is read from the beginning
+		// whatever the flags say, since anything less would leave it with a
+		// mark that claims a history it never fetched.
 		readFrom := since
-		isRepair := repairSince > 0 && (since == 0 || repairSince < since)
-		if isRepair {
+		switch {
+		case isFullSync:
+			readFrom = 0
+		case repairSince > 0 && since > 0 && repairSince < since:
 			readFrom = repairSince
 		}
 
@@ -298,77 +302,16 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 			continue
 		}
 
-		alreadyArchived := map[string]struct{}{}
-		if isRepair {
-			lines, err := store.ReadChannelPosts(channel.TeamName, channel.Name)
+		lastCreateAt := since
+		if len(collected) > 0 {
+			fresh, err := archiveWritePosts(store, channel, collected, readFrom, readFrom < since || since == 0)
 			if err != nil {
 				return err
 			}
-			for _, line := range lines {
-				header := &postHeader{}
-				if err := json.Unmarshal(line, header); err != nil {
-					return fmt.Errorf("commands: parsing an archived post: %w", err)
-				}
-				alreadyArchived[header.ID] = struct{}{}
-			}
-		}
-
-		var fresh []*archivedPost
-		for _, raw := range collected {
-			header := &postHeader{}
-			if err := json.Unmarshal(raw, header); err != nil {
-				return fmt.Errorf("commands: parsing post: %w", err)
-			}
-			if header.CreateAt <= readFrom {
-				continue
-			}
-			if _, isKnown := alreadyArchived[header.ID]; isKnown {
-				continue
-			}
-			fresh = append(fresh, &archivedPost{header: header, raw: raw})
-		}
-		sort.SliceStable(fresh, func(first, second int) bool {
-			return fresh[first].header.CreateAt < fresh[second].header.CreateAt
-		})
-
-		lastCreateAt := since
-		if len(fresh) > 0 {
-			lines := make([]json.RawMessage, 0, len(fresh))
-			var records []*archive.ArchivedFile
 			for _, post := range fresh {
-				lines = append(lines, post.raw)
 				if post.header.CreateAt > lastCreateAt {
 					lastCreateAt = post.header.CreateAt
 				}
-				for _, fileId := range post.header.FileIDs {
-					records = append(records, &archive.ArchivedFile{
-						FileID:      fileId,
-						PostID:      post.header.ID,
-						ChannelName: channel.Name,
-						TeamName:    channel.TeamName,
-						CreateAt:    post.header.CreateAt,
-					})
-				}
-			}
-			switch {
-			case isRepair:
-				// Merge: what is on disk plus what was missing, in order.
-				if err := archiveMergePosts(store, channel, lines); err != nil {
-					return err
-				}
-			case since == 0:
-				// A channel read from the beginning replaces its file.
-				// Appending would put a second copy of every post after the first.
-				if err := store.ReplacePosts(channel.TeamName, channel.Name, lines); err != nil {
-					return err
-				}
-			default:
-				if err := store.AppendPosts(channel.TeamName, channel.Name, lines); err != nil {
-					return err
-				}
-			}
-			if err := store.AppendFiles(records); err != nil {
-				return err
 			}
 			newPostCount += len(fresh)
 		}
@@ -379,10 +322,15 @@ func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *arch
 			LastCreateAt: lastCreateAt,
 			IsArchived:   channel.DeleteAt != 0,
 		}
-		if (index+1)%archiveStateInterval == 0 {
+		// The mark is saved as soon as the posts it covers are on disk. A run
+		// cut short between the two would otherwise read those posts again
+		// and, on the ordinary append path, store them twice.
+		if lastCreateAt != since {
 			if err := store.SaveState(state); err != nil {
 				return err
 			}
+		}
+		if (index+1)%archiveStateInterval == 0 {
 			printer.PrintInfo("  %d/%d channels, %d new posts", index+1, len(channels), newPostCount)
 		}
 	}
@@ -483,36 +431,110 @@ func archiveChannelHasNewPosts(ctx context.Context, apiClient *model.Client4, ch
 	return false, nil
 }
 
-// archiveMergePosts rewrites one channel's file as everything already archived
-// plus the posts a repair recovered, oldest first. Rewriting rather than
-// appending is what keeps the file in order, and merging rather than replacing
-// is what keeps posts the server will no longer hand out, such as deleted ones
-// an earlier sync caught while they were still there.
-func archiveMergePosts(store *archive.Store, channel *archiveChannel, recovered []json.RawMessage) error {
-	existing, err := store.ReadChannelPosts(channel.TeamName, channel.Name)
-	if err != nil {
-		return err
-	}
-
-	merged := make([]*archivedPost, 0, len(existing)+len(recovered))
-	for _, group := range [][]json.RawMessage{existing, recovered} {
-		for _, raw := range group {
-			header := &postHeader{}
-			if err := json.Unmarshal(raw, header); err != nil {
-				return fmt.Errorf("commands: parsing a post to merge: %w", err)
-			}
-			merged = append(merged, &archivedPost{header: header, raw: raw})
+// archiveWritePosts adds the posts a read collected to one channel's file and
+// records their attachments, returning the posts that were actually new.
+//
+// The ordinary read starts at the mark, and everything it brings back is newer
+// than anything on disk, so it is appended without looking at the file: the
+// largest channel files run to hundreds of megabytes, and reading one on every
+// sync is what an incremental sync exists to avoid. A read that reached behind
+// the mark, for --full, --since or a channel with no mark, consults the file
+// by post id, so a post is stored once however it was reached, and posts the
+// server no longer hands out, such as deleted ones an earlier sync caught
+// while they were still there, are kept: the file is merged into, never
+// replaced from the server's view.
+func archiveWritePosts(store *archive.Store, channel *archiveChannel, collected map[string]json.RawMessage, readFrom int64, shouldConsultDisk bool) ([]*archivedPost, error) {
+	if !shouldConsultDisk {
+		// The mark says nothing on disk is newer than readFrom. The last line
+		// of the file is cheap to check, and disagrees when a run was cut
+		// short after writing posts but before saving the mark.
+		newest, _, err := store.NewestPost(channel.TeamName, channel.Name)
+		if err != nil {
+			return nil, err
+		}
+		header := &postHeader{}
+		if len(newest) > 0 && (json.Unmarshal(newest, header) != nil || header.CreateAt > readFrom) {
+			shouldConsultDisk = true
 		}
 	}
-	sort.SliceStable(merged, func(first, second int) bool {
-		return merged[first].header.CreateAt < merged[second].header.CreateAt
+
+	alreadyArchived := map[string]struct{}{}
+	newestOnDisk := int64(0)
+	if shouldConsultDisk {
+		unparseableCount := 0
+		err := store.ScanPosts(channel.TeamName, channel.Name, func(line []byte) bool {
+			header := &postHeader{}
+			if json.Unmarshal(line, header) != nil {
+				unparseableCount++
+				return true
+			}
+			alreadyArchived[header.ID] = struct{}{}
+			if header.CreateAt > newestOnDisk {
+				newestOnDisk = header.CreateAt
+			}
+			return true
+		})
+		if err != nil {
+			return nil, err
+		}
+		if unparseableCount > 0 {
+			log.Warningf("%d lines in the archive of %s/%s do not parse and were kept as they are", unparseableCount, channel.TeamName, channel.Name)
+		}
+	}
+
+	var fresh []*archivedPost
+	oldestFresh := int64(0)
+	for _, raw := range collected {
+		header := &postHeader{}
+		if err := json.Unmarshal(raw, header); err != nil {
+			return nil, fmt.Errorf("commands: parsing post: %w", err)
+		}
+		if header.CreateAt <= readFrom {
+			continue
+		}
+		if _, isKnown := alreadyArchived[header.ID]; isKnown {
+			continue
+		}
+		fresh = append(fresh, &archivedPost{header: header, raw: raw})
+		if oldestFresh == 0 || header.CreateAt < oldestFresh {
+			oldestFresh = header.CreateAt
+		}
+	}
+	if len(fresh) == 0 {
+		return nil, nil
+	}
+	sort.SliceStable(fresh, func(first, second int) bool {
+		return fresh[first].header.CreateAt < fresh[second].header.CreateAt
 	})
 
-	lines := make([]json.RawMessage, 0, len(merged))
-	for _, post := range merged {
+	lines := make([]json.RawMessage, 0, len(fresh))
+	var records []*archive.ArchivedFile
+	for _, post := range fresh {
 		lines = append(lines, post.raw)
+		for _, fileId := range post.header.FileIDs {
+			records = append(records, &archive.ArchivedFile{
+				FileID:      fileId,
+				PostID:      post.header.ID,
+				ChannelName: channel.Name,
+				TeamName:    channel.TeamName,
+				CreateAt:    post.header.CreateAt,
+			})
+		}
 	}
-	return store.ReplacePosts(channel.TeamName, channel.Name, lines)
+
+	// New posts that all sit after what is on disk are appended. Anything
+	// older goes through a rewrite, so the file stays oldest first.
+	if oldestFresh >= newestOnDisk {
+		if err := store.AppendPosts(channel.TeamName, channel.Name, lines); err != nil {
+			return nil, err
+		}
+	} else if err := store.MergePosts(channel.TeamName, channel.Name, lines); err != nil {
+		return nil, err
+	}
+	if err := store.AppendFiles(records); err != nil {
+		return nil, err
+	}
+	return fresh, nil
 }
 
 func archiveGetPosts(ctx context.Context, apiClient *model.Client4, path string) (*rawPostList, error) {
@@ -552,7 +574,7 @@ func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *arch
 		return err
 	}
 	if fileScope == "mine" {
-		mine, err := archiveOwnFileIDs(store, me.Id)
+		mine, err := archiveOwnFileIds(store, me.Id)
 		if err != nil {
 			return err
 		}
@@ -592,6 +614,7 @@ func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *arch
 	for index, fileId := range todo {
 		info, _, err := apiClient.GetFileInfo(ctx, fileId)
 		if err != nil {
+			log.Warningf("attachment %s unavailable: %v", fileId, err)
 			unavailableCount++
 			continue
 		}
@@ -601,6 +624,7 @@ func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *arch
 		}
 		content, _, err := apiClient.DownloadFile(ctx, fileId, true)
 		if err != nil {
+			log.Warningf("attachment %s (%s) unavailable: %v", fileId, info.Name, err)
 			unavailableCount++
 			continue
 		}
@@ -620,9 +644,9 @@ func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *arch
 	return nil
 }
 
-// archiveOwnFileIDs reads the attachment ids on the user's own posts out of the
+// archiveOwnFileIds reads the attachment ids on the user's own posts out of the
 // archive, so "only my files" needs no further server calls.
-func archiveOwnFileIDs(store *archive.Store, userId string) (map[string]struct{}, error) {
+func archiveOwnFileIds(store *archive.Store, userId string) (map[string]struct{}, error) {
 	fileIds := map[string]struct{}{}
 	channelFiles, err := store.ChannelFiles()
 	if err != nil {
@@ -733,7 +757,9 @@ func archiveGetPages(ctx context.Context, apiClient *model.Client4, path string,
 }
 
 // archiveGet reads one API path as raw JSON, retrying the failures that are
-// worth retrying. A 403 or 404 is the server saying no, so it is returned as is.
+// worth retrying. A 4xx other than 408 or 429 is the server saying no, and
+// asking again with the same request and the same token will not change its
+// mind, so it is returned as is.
 func archiveGet(ctx context.Context, apiClient *model.Client4, path string) ([]byte, error) {
 	var lastError error
 	for attempt := 0; attempt < archiveRetryCount; attempt++ {
@@ -745,7 +771,9 @@ func archiveGet(ctx context.Context, apiClient *model.Client4, path string) ([]b
 			}
 			lastError = readError
 		} else {
-			if response != nil && (response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusNotFound) {
+			if response != nil && response.StatusCode >= http.StatusBadRequest &&
+				response.StatusCode < http.StatusInternalServerError &&
+				response.StatusCode != http.StatusTooManyRequests && response.StatusCode != http.StatusRequestTimeout {
 				return nil, fmt.Errorf("commands: reading %s: %w", path, err)
 			}
 			lastError = err

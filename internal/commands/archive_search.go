@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/ziyan/mm/internal/archive"
@@ -67,16 +68,9 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
-	var pattern *regexp.Regexp
-	if isRegex {
-		expression := query
-		if !isCaseSensitive {
-			expression = "(?i)" + expression
-		}
-		pattern, err = regexp.Compile(expression)
-		if err != nil {
-			return fmt.Errorf("commands: compiling the query: %w", err)
-		}
+	matcher, err := newMessageMatcher(query, isRegex, isCaseSensitive)
+	if err != nil {
+		return err
 	}
 
 	usernames, err := store.LoadUsernames()
@@ -115,21 +109,8 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 		return fmt.Errorf("commands: no archived channels match, is %s an archive directory", store.Directory())
 	}
 
-	// A cheap substring test on the raw line decides whether a post is worth
-	// parsing, which is what keeps a scan of the whole archive reasonable.
-	lowerQuery := []byte(strings.ToLower(query))
-	rawQuery := []byte(query)
-
-	matches := searchChannelFiles(wantedFiles, func(line []byte) *searchedPost {
-		if isRegex {
-			if !pattern.Match(line) {
-				return nil
-			}
-		} else if isCaseSensitive {
-			if !bytes.Contains(line, rawQuery) {
-				return nil
-			}
-		} else if !bytes.Contains(bytes.ToLower(line), lowerQuery) {
+	found, err := searchChannelFiles(wantedFiles, func(line []byte) *searchedPost {
+		if matcher.canPrefilter && !matcher.matches(line) {
 			return nil
 		}
 		post := &searchedPost{}
@@ -148,33 +129,33 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 		if until > 0 && post.CreateAt > until {
 			return nil
 		}
-		if !matchesMessage(post.Message, query, pattern, isRegex, isCaseSensitive) {
+		if !matcher.matches([]byte(post.Message)) {
 			return nil
 		}
 		return post
 	})
+	if err != nil {
+		return err
+	}
 
 	serverUrl := ""
-	if _, server, err := client.New(); err == nil {
-		serverUrl = strings.TrimRight(server.URL, "/")
-		if !strings.HasPrefix(serverUrl, "http") {
-			serverUrl = "https://" + serverUrl
-		}
+	if apiClient, _, err := client.New(); err == nil {
+		serverUrl = strings.TrimRight(apiClient.URL, "/")
 	}
 
-	sort.SliceStable(matches, func(first, second int) bool {
+	sort.SliceStable(found, func(first, second int) bool {
 		if isOldestFirst {
-			return matches[first].post.CreateAt < matches[second].post.CreateAt
+			return found[first].post.CreateAt < found[second].post.CreateAt
 		}
-		return matches[first].post.CreateAt > matches[second].post.CreateAt
+		return found[first].post.CreateAt > found[second].post.CreateAt
 	})
-	totalCount := len(matches)
-	if limit > 0 && len(matches) > limit {
-		matches = matches[:limit]
+	totalCount := len(found)
+	if limit > 0 && len(found) > limit {
+		found = found[:limit]
 	}
 
-	results := make([]*searchMatch, 0, len(matches))
-	for _, match := range matches {
+	results := make([]*searchMatch, 0, len(found))
+	for _, match := range found {
 		name := usernames[match.post.UserID]
 		if name == "" {
 			name = match.post.UserID
@@ -234,8 +215,9 @@ type locatedPost struct {
 
 // searchChannelFiles reads the channel files in parallel. The archive is large
 // enough that one goroutine per core is the difference between a few seconds
-// and most of a minute.
-func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []byte) *searchedPost) []*locatedPost {
+// and most of a minute. A file that cannot be read fails the search rather
+// than quietly contributing nothing, since "no matches" would be a lie.
+func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []byte) *searchedPost) ([]*locatedPost, error) {
 	workerCount := runtime.NumCPU()
 	if workerCount > len(channelFiles) {
 		workerCount = len(channelFiles)
@@ -248,10 +230,14 @@ func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []by
 	var waitGroup sync.WaitGroup
 	var lock sync.Mutex
 	var matches []*locatedPost
-	collect := func(found []*locatedPost) {
+	var firstError error
+	collect := func(found []*locatedPost, err error) {
 		lock.Lock()
 		defer lock.Unlock()
 		matches = append(matches, found...)
+		if err != nil && firstError == nil {
+			firstError = err
+		}
 	}
 
 	for worker := 0; worker < workerCount; worker++ {
@@ -260,7 +246,7 @@ func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []by
 			defer waitGroup.Done()
 			for channelFile := range work {
 				var found []*locatedPost
-				_ = archive.ReadPosts(channelFile.Path, func(line []byte) bool {
+				err := archive.ReadPosts(channelFile.Path, func(line []byte) bool {
 					if post := test(line); post != nil {
 						found = append(found, &locatedPost{
 							teamName:    channelFile.TeamName,
@@ -270,8 +256,8 @@ func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []by
 					}
 					return true
 				})
-				if len(found) > 0 {
-					collect(found)
+				if len(found) > 0 || err != nil {
+					collect(found, err)
 				}
 			}
 		}()
@@ -281,20 +267,116 @@ func searchChannelFiles(channelFiles []*archive.ChannelFile, test func(line []by
 	}
 	close(work)
 	waitGroup.Wait()
-	return matches
+	return matches, firstError
 }
 
-// matchesMessage re-tests the match against the message text alone. The cheap
-// test that got us here ran over the whole JSON line, which also carries ids,
-// props and attachment names.
-func matchesMessage(message, query string, pattern *regexp.Regexp, isRegex, isCaseSensitive bool) bool {
+// messageMatcher is the one test a search applies to a post's message. If
+// canPrefilter holds, the search also runs it over the raw JSON line first,
+// and parses a post only when it may match.
+type messageMatcher struct {
+	matches      func(text []byte) bool
+	canPrefilter bool
+}
+
+// newMessageMatcher builds the test for a query. A plain query is a byte
+// search, which runs through the archive several times faster than a regular
+// expression compiled from the same text.
+//
+// The raw-line prefilter is only sound when the JSON escaping of the message
+// cannot change the answer: a quote, backslash, control character, or a
+// character an encoder may write as \uXXXX, is not stored as itself. A
+// regular expression is never prefiltered: its anchors and classes would bind
+// to the line rather than the message, and parsing every post is cheaper than
+// running it over every line anyway.
+func newMessageMatcher(query string, isRegex, isCaseSensitive bool) (*messageMatcher, error) {
 	if isRegex {
-		return pattern.MatchString(message)
+		expression := query
+		if !isCaseSensitive {
+			expression = "(?i)" + expression
+		}
+		pattern, err := regexp.Compile(expression)
+		if err != nil {
+			return nil, fmt.Errorf("commands: compiling the query: %w", err)
+		}
+		// A case-sensitive expression opening with a literal cannot match a
+		// message whose line lacks that literal, so the line is tested for
+		// it first. There is no such prefix once case is folded.
+		prefix, _ := pattern.LiteralPrefix()
+		if prefix != "" && survivesJsonEscaping(prefix) {
+			wanted := []byte(prefix)
+			return &messageMatcher{
+				matches: func(text []byte) bool {
+					return bytes.Contains(text, wanted) && pattern.Match(text)
+				},
+				canPrefilter: true,
+			}, nil
+		}
+		return &messageMatcher{matches: pattern.Match}, nil
 	}
+
+	canPrefilter := survivesJsonEscaping(query)
 	if isCaseSensitive {
-		return strings.Contains(message, query)
+		wanted := []byte(query)
+		return &messageMatcher{
+			matches:      func(text []byte) bool { return bytes.Contains(text, wanted) },
+			canPrefilter: canPrefilter,
+		}, nil
 	}
-	return strings.Contains(strings.ToLower(message), strings.ToLower(query))
+	wanted := []byte(strings.ToLower(query))
+	if !isAscii(query) {
+		// Case folding can change the length of a character outside ASCII,
+		// which the window comparison below cannot follow, so both sides are
+		// lowered in full. Rare enough that the copy per line is acceptable.
+		return &messageMatcher{
+			matches:      func(text []byte) bool { return bytes.Contains(bytes.ToLower(text), wanted) },
+			canPrefilter: canPrefilter,
+		}, nil
+	}
+	return &messageMatcher{
+		matches:      func(text []byte) bool { return containsFold(text, wanted) },
+		canPrefilter: canPrefilter,
+	}, nil
+}
+
+// survivesJsonEscaping reports whether text is stored as itself inside a JSON
+// string. A quote, backslash or control character is not, and nor is a
+// character an encoder may write as \uXXXX.
+func survivesJsonEscaping(text string) bool {
+	if strings.ContainsAny(text, "\"\\<>&\u2028\u2029") {
+		return false
+	}
+	return !strings.ContainsFunc(text, func(character rune) bool { return character < ' ' || character == 0x7f })
+}
+
+func isAscii(text string) bool {
+	return !strings.ContainsFunc(text, func(character rune) bool { return character >= utf8.RuneSelf })
+}
+
+// containsFold reports whether text holds query ignoring case. It avoids the
+// lowercase copy of text that bytes.ToLower would make for every line in the
+// archive. The caller lowercases query first, and keeps it to ASCII. It
+// compares with bytes.EqualFold over windows of the query's length, so a
+// character whose case variants differ in length, such as the Kelvin sign
+// for k, does not match its ASCII counterpart.
+func containsFold(text, query []byte) bool {
+	if len(query) == 0 {
+		return true
+	}
+	first := query[0]
+	upper := first
+	if 'a' <= first && first <= 'z' {
+		upper = first - ('a' - 'A')
+	}
+	for index := 0; index+len(query) <= len(text); index++ {
+		character := text[index]
+		if character != first && character != upper && character < utf8.RuneSelf {
+			continue
+		}
+		if bytes.EqualFold(text[index:index+len(query)], query) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseSearchDate(text string, isEndOfDay bool) (int64, error) {

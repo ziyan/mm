@@ -26,7 +26,7 @@ func TestSafeName(t *testing.T) {
 }
 
 func TestStateRoundTrip(t *testing.T) {
-	store, err := Open(t.TempDir())
+	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("opening the archive: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestStateRoundTrip(t *testing.T) {
 }
 
 func TestMergeChannelsKeepsWhatItDidNotSee(t *testing.T) {
-	store, err := Open(t.TempDir())
+	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("opening the archive: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestMergeChannelsKeepsWhatItDidNotSee(t *testing.T) {
 }
 
 func TestAppendAndReadPosts(t *testing.T) {
-	store, err := Open(t.TempDir())
+	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("opening the archive: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestAppendAndReadPosts(t *testing.T) {
 }
 
 func TestReadPostsHandlesLongLines(t *testing.T) {
-	store, err := Open(t.TempDir())
+	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("opening the archive: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestReadPostsHandlesLongLines(t *testing.T) {
 }
 
 func TestReferencedFileIDs(t *testing.T) {
-	store, err := Open(t.TempDir())
+	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatalf("opening the archive: %v", err)
 	}
@@ -222,5 +222,67 @@ func TestExpandPath(t *testing.T) {
 	}
 	if expanded, _ := ExpandPath("/tmp/archive"); expanded != "/tmp/archive" {
 		t.Errorf("an absolute path should be left alone, got %q", expanded)
+	}
+}
+
+func TestNewestPostAndAppendAfterAPartialLine(t *testing.T) {
+	store, err := Create(t.TempDir())
+	if err != nil {
+		t.Fatalf("creating the archive: %v", err)
+	}
+	if newest, endsWithNewline, err := store.NewestPost("team", "channel"); err != nil || newest != nil || !endsWithNewline {
+		t.Fatalf("a missing file should read as empty, got %q %v %v", newest, endsWithNewline, err)
+	}
+
+	long := strings.Repeat("y", 200*1024) // longer than one backward chunk
+	first, _ := json.Marshal(map[string]string{"id": "p1", "message": long})
+	second, _ := json.Marshal(map[string]string{"id": "p2", "message": "short"})
+	if err := store.AppendPosts("team", "channel", []json.RawMessage{first, second}); err != nil {
+		t.Fatalf("appending: %v", err)
+	}
+	newest, endsWithNewline, err := store.NewestPost("team", "channel")
+	if err != nil || !endsWithNewline || string(newest) != string(second) {
+		t.Fatalf("expected the second post as the newest, got %.40q %v %v", newest, endsWithNewline, err)
+	}
+	// Only the long line, so the walk back reaches the start of the file.
+	if err := os.WriteFile(store.PostsPath("team", "channel"), append(first, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if newest, _, err := store.NewestPost("team", "channel"); err != nil || len(newest) != len(first) {
+		t.Fatalf("expected the long post back whole, got %d bytes, %v", len(newest), err)
+	}
+
+	// A file cut short mid-line: the next append must start on a new line.
+	if err := os.WriteFile(store.PostsPath("team", "channel"), []byte(`{"id":"p1","mess`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendPosts("team", "channel", []json.RawMessage{second}); err != nil {
+		t.Fatalf("appending after a partial line: %v", err)
+	}
+	var lines []string
+	if err := ReadPosts(store.PostsPath("team", "channel"), func(line []byte) bool {
+		lines = append(lines, string(line))
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[1] != string(second) {
+		t.Fatalf("expected the partial line and then the post on its own line, got %q", lines)
+	}
+}
+
+func TestOpenRequiresAnArchive(t *testing.T) {
+	if _, err := Open(t.TempDir()); err == nil {
+		t.Fatal("an empty directory must not open as an archive")
+	}
+	store, err := Create(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(map[string]*ChannelState{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(store.Directory()); err != nil {
+		t.Fatalf("a synced directory must open: %v", err)
 	}
 }

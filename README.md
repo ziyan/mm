@@ -251,6 +251,7 @@ mm archive sync ~/mattermost-archive --since 2026-08-01  # re-read back to a dat
 mm archive status ~/mattermost-archive            # what the archive holds
 mm archive search ~/mattermost-archive "deadlock" # search it offline
 mm archive search ~/mattermost-archive "timeout" -c backend -u alice --since 2026-01-01
+mm archive search ~/mattermost-archive "timeout" --team platform   # only teams whose name matches
 mm archive search ~/mattermost-archive "c.t sat" --regex --limit 10
 mm archive search ~/mattermost-archive "deadlock" --json
 ```

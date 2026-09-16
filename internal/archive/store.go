@@ -16,6 +16,7 @@ package archive
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -77,17 +78,46 @@ type Store struct {
 	directory string
 }
 
-// Open prepares an archive directory, creating it if it is not there yet.
+// Open prepares an existing archive directory. A command that only reads the
+// archive must not create one as a side effect. A mistyped path would then
+// look like an empty archive rather than an error.
 func Open(directory string) (*Store, error) {
+	store, err := newStore(directory)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(store.directory)
+	if err != nil {
+		return nil, fmt.Errorf("archive: opening %s: %w", store.directory, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("archive: %s is not a directory", store.directory)
+	}
+	if _, err := os.Stat(filepath.Join(store.directory, stateFileName)); err != nil {
+		return nil, fmt.Errorf("archive: %s is not an archive directory, it has no %s: %w", store.directory, stateFileName, err)
+	}
+	return store, nil
+}
+
+// Create prepares an archive directory, creating it if it is not there yet.
+func Create(directory string) (*Store, error) {
+	store, err := newStore(directory)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(store.directory, 0o755); err != nil {
+		return nil, fmt.Errorf("archive: creating %s: %w", store.directory, err)
+	}
+	return store, nil
+}
+
+func newStore(directory string) (*Store, error) {
 	if directory == "" {
 		return nil, fmt.Errorf("archive: no archive directory given")
 	}
 	expanded, err := ExpandPath(directory)
 	if err != nil {
 		return nil, err
-	}
-	if err := os.MkdirAll(expanded, 0o755); err != nil {
-		return nil, fmt.Errorf("archive: creating %s: %w", expanded, err)
 	}
 	return &Store{directory: expanded}, nil
 }
@@ -237,32 +267,164 @@ func (self *Store) SaveMe(user *model.User) error {
 	return self.writeJson(meFileName, user)
 }
 
-// LoadMe reads the authenticated user recorded by an earlier sync.
-func (self *Store) LoadMe() (*model.User, error) {
-	user := &model.User{}
-	if err := self.readJson(meFileName, user); err != nil {
-		return nil, err
-	}
-	return user, nil
-}
-
 // AppendPosts adds raw post JSON to one channel's file, oldest first.
+//
+// A file cut short mid-write ends without a newline. The append then starts
+// with one, so the post it adds is not glued onto the partial line in front.
 func (self *Store) AppendPosts(teamName, channelName string, lines []json.RawMessage) error {
-	return self.writePosts(teamName, channelName, lines, os.O_APPEND)
-}
-
-// ReplacePosts writes one channel's file from scratch. A sync that re-reads a
-// channel from the beginning must not leave the previous copy in front of the
-// new one.
-func (self *Store) ReplacePosts(teamName, channelName string, lines []json.RawMessage) error {
-	return self.writePosts(teamName, channelName, lines, os.O_TRUNC)
-}
-
-func (self *Store) writePosts(teamName, channelName string, lines []json.RawMessage, mode int) error {
 	path := self.PostsPath(teamName, channelName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("archive: creating %s: %w", filepath.Dir(path), err)
 	}
+	_, endsWithNewline, err := self.NewestPost(teamName, channelName)
+	if err != nil {
+		return err
+	}
+	if !endsWithNewline {
+		lines = append([]json.RawMessage{nil}, lines...)
+	}
+	return writeLines(path, os.O_APPEND, lines)
+}
+
+// NewestPost reads the last line of one channel's file, without reading the
+// rest of it, and says whether the file ends with a newline. A missing or
+// empty file yields nil and true.
+func (self *Store) NewestPost(teamName, channelName string) ([]byte, bool, error) {
+	path := self.PostsPath(teamName, channelName)
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, true, nil
+		}
+		return nil, false, fmt.Errorf("archive: opening %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, false, fmt.Errorf("archive: reading %s: %w", path, err)
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil, true, nil
+	}
+
+	// Read backwards a chunk at a time until the line before the last one
+	// shows up, or the file runs out.
+	const chunkSize = 64 * 1024
+	var tail []byte
+	endsWithNewline := false
+	for offset := size; offset > 0; {
+		length := int64(chunkSize)
+		if length > offset {
+			length = offset
+		}
+		offset -= length
+		chunk := make([]byte, length)
+		if _, err := file.ReadAt(chunk, offset); err != nil && err != io.EOF {
+			return nil, false, fmt.Errorf("archive: reading %s: %w", path, err)
+		}
+		tail = append(chunk, tail...)
+		if offset+length == size {
+			endsWithNewline = tail[len(tail)-1] == '\n'
+		}
+		content := tail
+		if endsWithNewline {
+			content = content[:len(content)-1]
+		}
+		if index := bytes.LastIndexByte(content, '\n'); index >= 0 {
+			return append([]byte(nil), content[index+1:]...), endsWithNewline, nil
+		}
+	}
+	if endsWithNewline {
+		tail = tail[:len(tail)-1]
+	}
+	return tail, endsWithNewline, nil
+}
+
+// MergePosts rewrites one channel's file as what is on disk plus additions,
+// oldest first, for a sync that reached back before the newest archived post.
+// It streams both inputs, since a channel file can run to hundreds of
+// megabytes. It writes the new copy beside the old one and renames it over
+// the old one. A crash mid-way therefore leaves the previous copy intact,
+// rather than a truncated file with a high-water mark that says it is complete.
+//
+// The caller sorts additions oldest first. Each addition goes in front of the
+// first archived post newer than it. A file already out of order is not
+// repaired.
+func (self *Store) MergePosts(teamName, channelName string, additions []json.RawMessage) error {
+	path := self.PostsPath(teamName, channelName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("archive: creating %s: %w", filepath.Dir(path), err)
+	}
+	temporary := path + ".tmp"
+	file, err := os.OpenFile(temporary, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("archive: opening %s: %w", temporary, err)
+	}
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(temporary) // nothing to remove once the rename went through
+	}()
+	writer := bufio.NewWriterSize(file, 1<<20)
+
+	remaining := additions
+	remainingCreateAt := make([]int64, len(additions))
+	for index, line := range additions {
+		remainingCreateAt[index] = postCreateAt(line)
+	}
+	writeLine := func(line []byte) error {
+		if _, err := writer.Write(line); err != nil {
+			return err
+		}
+		return writer.WriteByte('\n')
+	}
+	var writeError error
+	err = self.ScanPosts(teamName, channelName, func(line []byte) bool {
+		createAt := postCreateAt(line)
+		for len(remaining) > 0 && remainingCreateAt[0] < createAt {
+			if writeError = writeLine(remaining[0]); writeError != nil {
+				return false
+			}
+			remaining = remaining[1:]
+			remainingCreateAt = remainingCreateAt[1:]
+		}
+		writeError = writeLine(line)
+		return writeError == nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, line := range remaining {
+		if writeError = writeLine(line); writeError != nil {
+			break
+		}
+	}
+	if writeError == nil {
+		writeError = writer.Flush()
+	}
+	if writeError != nil {
+		return fmt.Errorf("archive: writing %s: %w", temporary, writeError)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("archive: writing %s: %w", temporary, err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		return fmt.Errorf("archive: replacing %s: %w", path, err)
+	}
+	return nil
+}
+
+// postCreateAt reads the creation time off one archived post. A line that does
+// not parse sorts first, so it stays where it was.
+func postCreateAt(line []byte) int64 {
+	header := struct {
+		CreateAt int64 `json:"create_at"`
+	}{}
+	_ = json.Unmarshal(line, &header)
+	return header.CreateAt
+}
+
+func writeLines(path string, mode int, lines []json.RawMessage) error {
 	file, err := os.OpenFile(path, mode|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("archive: opening %s: %w", path, err)
@@ -306,25 +468,18 @@ func (self *Store) AppendFiles(records []*ArchivedFile) error {
 	return nil
 }
 
-// ReadChannelPosts reads one channel's archived posts back, oldest first. A
-// missing file yields nothing, which is what a channel never synced looks like.
-func (self *Store) ReadChannelPosts(teamName, channelName string) ([]json.RawMessage, error) {
+// ScanPosts calls visit for every post archived for one channel, oldest first.
+// A missing file yields nothing, which is what a channel never synced looks
+// like. See ReadPosts for the contract of visit.
+func (self *Store) ScanPosts(teamName, channelName string, visit func(line []byte) bool) error {
 	path := self.PostsPath(teamName, channelName)
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, fmt.Errorf("archive: reading %s: %w", path, err)
+		return fmt.Errorf("archive: reading %s: %w", path, err)
 	}
-	var lines []json.RawMessage
-	err := ReadPosts(path, func(line []byte) bool {
-		lines = append(lines, append(json.RawMessage(nil), line...))
-		return true
-	})
-	if err != nil {
-		return nil, err
-	}
-	return lines, nil
+	return ReadPosts(path, visit)
 }
 
 // ReferencedFileIDs reads every attachment id the archived posts mention.
