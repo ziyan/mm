@@ -462,6 +462,7 @@ func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *ar
 
 	filesDirectory := store.FilesDirectory()
 	queuedFiles := map[string]struct{}{}
+	fileCount := 0
 	if options.fileScope != archiveFileScopeNone {
 		pending, known, err := archivePendingFileIds(store, options.me, options.fileScope)
 		if err != nil {
@@ -471,7 +472,8 @@ func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *ar
 		for _, fileId := range pending {
 			seed = append(seed, &archiveTask{fileId: fileId})
 		}
-		printer.PrintInfo("%d attachments to fetch in scope %q", len(pending), options.fileScope)
+		fileCount = len(pending)
+		printer.PrintInfo("%d attachments to fetch in scope %q", fileCount, options.fileScope)
 		if err := os.MkdirAll(filesDirectory, 0o755); err != nil {
 			return fmt.Errorf("commands: creating %s: %w", filesDirectory, err)
 		}
@@ -560,6 +562,7 @@ func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *ar
 			}
 			if len(added) > 0 {
 				pending += len(added)
+				fileCount += len(added)
 				more <- added
 			}
 		case outcome.file != nil:
@@ -568,7 +571,7 @@ func archiveSyncContent(ctx context.Context, apiClient *model.Client4, store *ar
 			}
 			archiveRecordFile(outcome.file, counts)
 		}
-		counts.report(channelCount, len(queuedFiles))
+		counts.report(channelCount, fileCount)
 		if pending == 0 {
 			close(more)
 		}
