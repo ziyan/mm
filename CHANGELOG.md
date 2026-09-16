@@ -12,6 +12,8 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
   A sync enumerates a channel by paging it rather than through the `since` parameter. A `since` response is capped at about a thousand posts and ordered by update time, not creation time, so advancing a high-water mark to the newest post it returns steps over posts it never carried. `since` is still used as a cheap test of whether a channel has anything new. Deleted posts are not archived: paging omits them and `include_deleted` needs system admin.
 
+- `mm archive sync` also archives direct and group messages, under `posts/direct/<username>.jsonl` and `posts/group/<usernames>.jsonl`. A channel keeps the team and name it was first archived under.
+
 - `mm archive sync --since <date>` re-reads every channel back to that date and merges the result with what is on disk, to fill a gap an earlier sync left. An ordinary sync never looks behind its own high-water mark, so it cannot repair itself.
 
 ## [0.5.0] - 2026-05-26

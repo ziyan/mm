@@ -23,14 +23,19 @@ const (
 	archivePageSize      = 200
 	archiveRetryCount    = 5
 	archiveStateInterval = 20
+
+	// Direct and group message channels belong to no team. The sync files
+	// them under these names instead.
+	archiveDirectTeamName = "direct"
+	archiveGroupTeamName  = "group"
 )
 
 func init() {
 	archiveCommand := &cobra.Command{
 		Use:   "archive",
 		Short: "Archive channels to a local directory and search them offline",
-		Long: "Keep a local copy of the posts and attachments you can read, and search it " +
-			"without going back to the server.\n\n" +
+		Long: "Keep a local copy of the posts and attachments you can read, including direct " +
+			"and group messages, and search it without going back to the server.\n\n" +
 			"A sync is incremental: the first run of a channel reads it in full, later runs " +
 			"ask only for posts newer than the last one archived, so re-running is cheap and safe.",
 	}
@@ -148,7 +153,18 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
-	channels, err := archiveListChannels(ctx, apiClient, me.Id, channelScope, onlySubstring)
+	// Users come first: a direct or group message channel is named after the
+	// people in it, and the listing needs their usernames.
+	usernames, err := archiveSyncUsers(ctx, apiClient, store)
+	if err != nil {
+		return err
+	}
+	state, err := store.LoadState()
+	if err != nil {
+		return err
+	}
+
+	channels, err := archiveListChannels(ctx, apiClient, me.Id, channelScope, onlySubstring, usernames, state)
 	if err != nil {
 		return err
 	}
@@ -162,13 +178,9 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 	printer.PrintInfo("%d channels to consider", len(channels))
 
 	if !shouldSkipPosts {
-		if err := archiveSyncPosts(ctx, apiClient, store, channels, isFullSync, repairSince); err != nil {
+		if err := archiveSyncPosts(ctx, apiClient, store, channels, state, isFullSync, repairSince); err != nil {
 			return err
 		}
-	}
-
-	if err := archiveSyncUsers(ctx, apiClient, store); err != nil {
-		return err
 	}
 
 	if fileScope != "none" {
@@ -185,7 +197,14 @@ func archiveSyncRun(command *cobra.Command, arguments []string) error {
 // the user was a member are only returned with include_deleted, and public
 // channels the user has left can still be read without joining them, which is
 // the only way to recover what was written there.
-func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, channelScope, onlySubstring string) ([]*archiveChannel, error) {
+//
+// Direct and group message channels belong to no team. The server lists them
+// with every team, so they are taken from the first listing that carries them
+// and filed under the pseudo-teams "direct" and "group", named after the
+// people in them. A channel already in state.json keeps the team and name it
+// was archived under, so a rename on the server, or a username change, does
+// not start a second file beside the first.
+func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, channelScope, onlySubstring string, usernames map[string]string, state map[string]*archive.ChannelState) ([]*archiveChannel, error) {
 	teams, _, err := apiClient.GetTeamsForUser(ctx, userId, "")
 	if err != nil {
 		return nil, fmt.Errorf("commands: listing teams: %w", err)
@@ -209,10 +228,10 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 				return nil, err
 			}
 			for _, raw := range pages {
-				channel := &archiveChannel{}
 				header := struct {
 					ID          string            `json:"id"`
 					Name        string            `json:"name"`
+					DisplayName string            `json:"display_name"`
 					ChannelType model.ChannelType `json:"type"`
 					CreateAt    int64             `json:"create_at"`
 					DeleteAt    int64             `json:"delete_at"`
@@ -220,26 +239,43 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 				if err := json.Unmarshal(raw, &header); err != nil {
 					return nil, fmt.Errorf("commands: parsing channel: %w", err)
 				}
-				if header.ChannelType != model.ChannelTypeOpen && header.ChannelType != model.ChannelTypePrivate {
-					continue
-				}
 				if _, isSeen := seen[header.ID]; isSeen {
 					continue
 				}
-				if onlySubstring != "" && !strings.Contains(header.Name, onlySubstring) {
+				channel := &archiveChannel{
+					ID:          header.ID,
+					Name:        header.Name,
+					TeamName:    team.Name,
+					CreateAt:    header.CreateAt,
+					DeleteAt:    header.DeleteAt,
+					ChannelType: header.ChannelType,
+				}
+				switch header.ChannelType {
+				case model.ChannelTypeOpen, model.ChannelTypePrivate:
+				case model.ChannelTypeDirect:
+					channel.TeamName = archiveDirectTeamName
+					channel.Name = archiveDirectChannelName(header.Name, userId, usernames)
+				case model.ChannelTypeGroup:
+					channel.TeamName = archiveGroupTeamName
+					channel.Name = header.DisplayName
+					if channel.Name == "" {
+						channel.Name = header.Name
+					}
+				default:
+					continue
+				}
+				if previous, isKnown := state[header.ID]; isKnown && previous.TeamName != "" && previous.ChannelName != "" {
+					channel.TeamName = previous.TeamName
+					channel.Name = previous.ChannelName
+				}
+				if onlySubstring != "" && !strings.Contains(channel.Name, onlySubstring) {
 					continue
 				}
 				seen[header.ID] = struct{}{}
-				withTeam, err := archiveAddTeamName(raw, team.Name)
+				withTeam, err := archiveAddTeamName(raw, channel.TeamName)
 				if err != nil {
 					return nil, err
 				}
-				channel.ID = header.ID
-				channel.Name = header.Name
-				channel.ChannelType = header.ChannelType
-				channel.CreateAt = header.CreateAt
-				channel.DeleteAt = header.DeleteAt
-				channel.TeamName = team.Name
 				channel.RawChannel = withTeam
 				channels = append(channels, channel)
 			}
@@ -249,6 +285,23 @@ func archiveListChannels(ctx context.Context, apiClient *model.Client4, userId, 
 		return channels[first].CreateAt < channels[second].CreateAt
 	})
 	return channels, nil
+}
+
+// archiveDirectChannelName names a direct message channel after the other
+// person in it, or after the user for a message to oneself. The server names
+// the channel by the two user ids joined with "__".
+func archiveDirectChannelName(channelName, userId string, usernames map[string]string) string {
+	partnerId := userId
+	for _, part := range strings.Split(channelName, "__") {
+		if part != "" && part != userId {
+			partnerId = part
+			break
+		}
+	}
+	if username, isKnown := usernames[partnerId]; isKnown {
+		return username
+	}
+	return partnerId
 }
 
 // archiveAddTeamName records which team a channel belongs to, which the channel
@@ -270,12 +323,7 @@ func archiveAddTeamName(raw json.RawMessage, teamName string) (json.RawMessage, 
 	return merged, nil
 }
 
-func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, isFullSync bool, repairSince int64) error {
-	state, err := store.LoadState()
-	if err != nil {
-		return err
-	}
-
+func archiveSyncPosts(ctx context.Context, apiClient *model.Client4, store *archive.Store, channels []*archiveChannel, state map[string]*archive.ChannelState, isFullSync bool, repairSince int64) error {
 	newPostCount, unreadableCount := 0, 0
 	for index, channel := range channels {
 		since := int64(0)
@@ -549,12 +597,14 @@ func archiveGetPosts(ctx context.Context, apiClient *model.Client4, path string)
 	return list, nil
 }
 
-func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *archive.Store) error {
+// archiveSyncUsers records every user on the server and returns their
+// usernames by id.
+func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *archive.Store) (map[string]string, error) {
 	var users []*model.User
 	for page := 0; ; page++ {
 		batch, _, err := apiClient.GetUsers(ctx, page, archivePageSize, "")
 		if err != nil {
-			return fmt.Errorf("commands: listing users: %w", err)
+			return nil, fmt.Errorf("commands: listing users: %w", err)
 		}
 		users = append(users, batch...)
 		if len(batch) < archivePageSize {
@@ -562,10 +612,14 @@ func archiveSyncUsers(ctx context.Context, apiClient *model.Client4, store *arch
 		}
 	}
 	if err := store.SaveUsers(users); err != nil {
-		return err
+		return nil, err
 	}
 	printer.PrintInfo("%d users recorded", len(users))
-	return nil
+	usernames := make(map[string]string, len(users))
+	for _, user := range users {
+		usernames[user.Id] = user.Username
+	}
+	return usernames, nil
 }
 
 func archiveSyncFiles(ctx context.Context, apiClient *model.Client4, store *archive.Store, me *model.User, fileScope string, maximumFileMegabytes float64) error {

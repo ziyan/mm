@@ -142,6 +142,16 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 	if apiClient, _, err := client.New(); err == nil {
 		serverUrl = strings.TrimRight(apiClient.URL, "/")
 	}
+	// A permalink needs a real team in its path. A direct or group message
+	// has none, and the server opens it from any team the reader is in, so
+	// one of the archived teams stands in.
+	permalinkTeam := ""
+	for _, channelFile := range channelFiles {
+		if channelFile.TeamName != archiveDirectTeamName && channelFile.TeamName != archiveGroupTeamName {
+			permalinkTeam = channelFile.TeamName
+			break
+		}
+	}
 
 	sort.SliceStable(found, func(first, second int) bool {
 		if isOldestFirst {
@@ -170,8 +180,12 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 			PostID:      match.post.ID,
 			RootID:      match.post.RootID,
 		}
-		if serverUrl != "" {
-			result.Permalink = fmt.Sprintf("%s/%s/pl/%s", serverUrl, match.teamName, match.post.ID)
+		teamName := match.teamName
+		if teamName == archiveDirectTeamName || teamName == archiveGroupTeamName {
+			teamName = permalinkTeam
+		}
+		if serverUrl != "" && teamName != "" {
+			result.Permalink = fmt.Sprintf("%s/%s/pl/%s", serverUrl, teamName, match.post.ID)
 		}
 		results = append(results, result)
 	}

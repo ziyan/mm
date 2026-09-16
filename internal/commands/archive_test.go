@@ -381,3 +381,46 @@ func TestIntegrationArchiveSyncKeepsUnseenChannels(t *testing.T) {
 		t.Errorf("a narrowed sync dropped a channel from channels.json, have %v", names)
 	}
 }
+
+// TestIntegrationArchiveDirectAndGroupMessages checks that direct and group
+// messages are archived under the pseudo-teams direct and group, named after
+// the people in them, and that a search reaches them.
+func TestIntegrationArchiveDirectAndGroupMessages(t *testing.T) {
+	skipIntegration(t)
+
+	needle := fmt.Sprintf("dmneedle%d", time.Now().UnixNano())
+	if output, err := runCommand("dm", "send", "testuser2", needle); err != nil {
+		t.Fatalf("dm send failed: %v\n%s", err, output)
+	}
+	groupNeedle := fmt.Sprintf("groupneedle%d", time.Now().UnixNano())
+	if output, err := runCommand("dm", "group", "testuser2,testuser3", groupNeedle); err != nil {
+		t.Fatalf("dm group failed: %v\n%s", err, output)
+	}
+
+	directory := t.TempDir()
+	if output, err := runCommand("archive", "sync", directory, "--only", "testuser2"); err != nil {
+		t.Fatalf("archive sync failed: %v\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "posts", "direct", "testuser2.jsonl")); err != nil {
+		t.Errorf("the direct message file is missing: %v", err)
+	}
+	groupFiles, _ := filepath.Glob(filepath.Join(directory, "posts", "group", "*testuser2*testuser3*.jsonl"))
+	if len(groupFiles) == 0 {
+		t.Errorf("no group message file named after its members under posts/group")
+	}
+
+	output, err := runCommand("archive", "search", directory, needle, "--channel", "", "--user", "", "--team", "direct")
+	if err != nil {
+		t.Fatalf("archive search failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "direct/testuser2") {
+		t.Errorf("search did not find the direct message: %s", output)
+	}
+	output, err = runCommand("archive", "search", directory, groupNeedle, "--channel", "", "--user", "", "--team", "")
+	if err != nil {
+		t.Fatalf("archive search failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "group/") {
+		t.Errorf("search did not find the group message: %s", output)
+	}
+}

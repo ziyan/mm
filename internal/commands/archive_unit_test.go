@@ -221,3 +221,19 @@ func TestMessageMatcherFoldsCaseOutsideASCII(t *testing.T) {
 		t.Fatal("a case-sensitive regex with a literal prefix is prefiltered on that prefix")
 	}
 }
+
+func TestArchiveDirectChannelName(t *testing.T) {
+	usernames := map[string]string{"me": "ziyan", "other": "alice"}
+	if name := archiveDirectChannelName("me__other", "me", usernames); name != "alice" {
+		t.Errorf("expected the other person's username, got %q", name)
+	}
+	if name := archiveDirectChannelName("other__me", "me", usernames); name != "alice" {
+		t.Errorf("the order of the ids must not matter, got %q", name)
+	}
+	if name := archiveDirectChannelName("me__me", "me", usernames); name != "ziyan" {
+		t.Errorf("a message to oneself is named after oneself, got %q", name)
+	}
+	if name := archiveDirectChannelName("me__gone", "me", usernames); name != "gone" {
+		t.Errorf("an unknown user falls back to the id, got %q", name)
+	}
+}

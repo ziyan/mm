@@ -267,6 +267,8 @@ users.json                     every user seen, so a search can print names offl
 me.json                        the authenticated user
 state.json                     per-channel high-water mark, for the next sync
 posts/<team>/<channel>.jsonl   one post per line, oldest first, as the server sent it
+posts/direct/<username>.jsonl  direct messages, one file per person
+posts/group/<usernames>.jsonl  group messages, named after the people in them
 files.jsonl                    one record per attachment referenced by an archived post
 files/<fileId>__<name>         attachment contents
 ```
@@ -291,6 +293,10 @@ cannot do this, because it never looks behind its own high-water mark.
 Deleted posts are the one thing a sync does not archive. Paging omits them, and
 `include_deleted` needs system admin, so a post deleted after it was written is
 kept only if a sync saw it while it was still there.
+
+A channel keeps the team and name it was first archived under, so a channel
+renamed on the server, or a person who changes their username, does not start a
+second file beside the first.
 
 Two notes on what a sync can and cannot reach. Channels archived while you were
 a member are included; they are invisible to the ordinary channel listing and
