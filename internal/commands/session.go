@@ -146,7 +146,9 @@ func authTokenCreateRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
-	token, _, err := apiClient.CreateUserAccessToken(ctx, currentUser.Id, arguments[0])
+	// Zero is no expiry, which is what this command did before the server
+	// library grew the argument, and what the web interface still offers.
+	token, _, err := apiClient.CreateUserAccessToken(ctx, currentUser.Id, arguments[0], 0)
 	if err != nil {
 		return fmt.Errorf("commands: creating token: %w", err)
 	}
