@@ -6,6 +6,12 @@ The format is based loosely on Keep a Changelog, and versions are recorded using
 
 ## [Unreleased]
 
+### Security
+
+- `govulncheck` and `gitleaks` run on a schedule, and Dependabot proposes dependency updates. Raising the `go` directive to 1.25.13 clears 46 reachable vulnerabilities in the standard library, and moving gRPC to 1.83.1 clears two more. What is left is reported against the Mattermost server module, which this client vendors for its API types but never runs; `.github/scripts/check-vulnerabilities.bash` sets that one module aside by name and fails on anything else.
+
+- Every GitHub Actions step is pinned to a commit rather than a tag, so a tag repointed at somebody else's code cannot change what CI runs. Dependabot keeps the pins current.
+
 ### Added
 
 - `mm archive`, a local archive of the channels you can read. `mm archive sync <dir>` fetches posts and attachments into a plain-file layout, incrementally: `state.json` holds a per-channel high-water mark and later runs ask the server only for what is newer. `--channels public` reaches public channels you have left, and channels archived while you were a member are included. `mm archive search <dir> <query>` searches it offline with channel, user, date and regex filters, printing a permalink for each match. `mm archive status <dir>` says what the archive holds.

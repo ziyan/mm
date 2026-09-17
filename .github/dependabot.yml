@@ -1,0 +1,32 @@
+# Dependency updates, proposed as pull requests.
+#
+# Weekly rather than daily: a pull request every morning is a pull request
+# nobody reads. Weekly is often enough that an update is a small diff and rare
+# enough that somebody looks at it.
+#
+# The Go dependencies are vendored, and Dependabot updates vendor/ along with
+# go.mod and go.sum. Without that the build, which uses -mod=vendor, would
+# break on every one of these.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One pull request rather than several. These move as a set, and
+      # reviewing identical version bumps one at a time teaches nobody
+      # anything.
+      golang-x:
+        patterns: ['golang.org/x/*']
+
+  # The workflows pin every action to a commit, which is what stops a tag
+  # being repointed at somebody else's code. A pin nobody updates is its own
+  # problem, so this is what keeps them current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
