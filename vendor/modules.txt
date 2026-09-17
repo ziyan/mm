@@ -1,9 +1,6 @@
-# github.com/blang/semver/v4 v4.0.0
-## explicit; go 1.14
-github.com/blang/semver/v4
-# github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-## explicit
-github.com/davecgh/go-spew/spew
+# github.com/Masterminds/semver/v3 v3.5.0
+## explicit; go 1.21
+github.com/Masterminds/semver/v3
 # github.com/dyatlov/go-opengraph/opengraph v0.0.0-20220524092352-606d7b1e5f8a
 ## explicit; go 1.7
 github.com/dyatlov/go-opengraph/opengraph
@@ -21,10 +18,10 @@ github.com/fatih/color
 # github.com/francoispqt/gojay v1.2.13
 ## explicit; go 1.12
 github.com/francoispqt/gojay
-# github.com/go-asn1-ber/asn1-ber v1.5.7
+# github.com/go-asn1-ber/asn1-ber v1.5.8
 ## explicit; go 1.13
 github.com/go-asn1-ber/asn1-ber
-# github.com/goccy/go-yaml v1.18.0
+# github.com/goccy/go-yaml v1.19.2
 ## explicit; go 1.21.0
 github.com/goccy/go-yaml
 github.com/goccy/go-yaml/ast
@@ -53,7 +50,7 @@ github.com/hashicorp/go-hclog
 # github.com/hashicorp/go-multierror v1.1.1
 ## explicit; go 1.13
 github.com/hashicorp/go-multierror
-# github.com/hashicorp/go-plugin v1.7.0
+# github.com/hashicorp/go-plugin v1.8.0
 ## explicit; go 1.24
 github.com/hashicorp/go-plugin
 github.com/hashicorp/go-plugin/internal/cmdrunner
@@ -83,8 +80,8 @@ github.com/mattermost/logr/v2
 github.com/mattermost/logr/v2/config
 github.com/mattermost/logr/v2/formatters
 github.com/mattermost/logr/v2/targets
-# github.com/mattermost/mattermost/server/public v0.2.1
-## explicit; go 1.24.13
+# github.com/mattermost/mattermost/server/public v0.4.4
+## explicit; go 1.26.7
 github.com/mattermost/mattermost/server/public/model
 github.com/mattermost/mattermost/server/public/shared/i18n
 github.com/mattermost/mattermost/server/public/shared/markdown
@@ -92,15 +89,11 @@ github.com/mattermost/mattermost/server/public/shared/mlog
 github.com/mattermost/mattermost/server/public/shared/timezones
 github.com/mattermost/mattermost/server/public/utils
 github.com/mattermost/mattermost/server/public/utils/timeutils
-# github.com/mattermost/mattermost/server/v8 v8.0.0-20251014075701-833e0125320d
-## explicit; go 1.24.6
-github.com/mattermost/mattermost/server/v8/channels/app/password/hashers
-github.com/mattermost/mattermost/server/v8/channels/app/password/phcparser
-# github.com/mattn/go-colorable v0.1.14
+# github.com/mattn/go-colorable v0.1.15
 ## explicit; go 1.18
 github.com/mattn/go-colorable
-# github.com/mattn/go-isatty v0.0.20
-## explicit; go 1.15
+# github.com/mattn/go-isatty v0.0.24
+## explicit; go 1.20
 github.com/mattn/go-isatty
 # github.com/oklog/run v1.2.0
 ## explicit; go 1.20
@@ -120,21 +113,20 @@ github.com/philhofer/fwd
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
-# github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
-## explicit
-github.com/pmezard/go-difflib/difflib
 # github.com/spf13/cobra v1.10.2
 ## explicit; go 1.15
 github.com/spf13/cobra
 # github.com/spf13/pflag v1.0.10
 ## explicit; go 1.12
 github.com/spf13/pflag
-# github.com/stretchr/testify v1.11.1
+# github.com/stretchr/testify v1.12.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/assert/yaml
-# github.com/tinylib/msgp v1.4.0
-## explicit; go 1.22
+github.com/stretchr/testify/internal/difflib
+github.com/stretchr/testify/internal/spew
+# github.com/tinylib/msgp v1.6.4
+## explicit; go 1.24
 github.com/tinylib/msgp/msgp
 # github.com/vmihailenco/msgpack/v5 v5.4.1
 ## explicit; go 1.19
@@ -151,13 +143,14 @@ github.com/wiggin77/merror
 # github.com/wiggin77/srslog v1.0.1
 ## explicit; go 1.14
 github.com/wiggin77/srslog
+# go.yaml.in/yaml/v3 v3.0.5
+## explicit; go 1.16
+go.yaml.in/yaml/v3
 # golang.org/x/crypto v0.55.0
 ## explicit; go 1.25.0
-golang.org/x/crypto/bcrypt
-golang.org/x/crypto/blowfish
 golang.org/x/crypto/pbkdf2
 golang.org/x/crypto/scrypt
-# golang.org/x/mod v0.38.0
+# golang.org/x/mod v0.40.0
 ## explicit; go 1.25.0
 golang.org/x/mod/semver
 # golang.org/x/net v0.58.0
@@ -186,7 +179,7 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa
+# google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/rpc/status
 # google.golang.org/grpc v1.83.2
@@ -261,7 +254,7 @@ google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/status
 google.golang.org/grpc/tap
-# google.golang.org/protobuf v1.36.11
+# google.golang.org/protobuf v1.36.12
 ## explicit; go 1.23
 google.golang.org/protobuf/encoding/protojson
 google.golang.org/protobuf/encoding/prototext
@@ -309,6 +302,3 @@ gopkg.in/natefinch/lumberjack.v2
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit; go 1.15
 gopkg.in/yaml.v2
-# gopkg.in/yaml.v3 v3.0.1
-## explicit
-gopkg.in/yaml.v3

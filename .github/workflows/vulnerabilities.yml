@@ -37,7 +37,12 @@ jobs:
       # when this program actually calls the affected code, which is the
       # difference between a list worth reading and a list nobody reads.
       #
-      # The script prints the whole report and then decides the outcome, with
-      # one module set aside and its reasons written down beside it.
+      # Nothing is set aside. There was an exclusion here for the Mattermost
+      # server module, which server/public 0.2.1 required and which brought
+      # 113 advisories about a server this program never runs. 0.4.4 does not
+      # require it, so the exclusion went with it: an exclusion kept past its
+      # reason is one that quietly excuses the module if it ever comes back.
       - name: Check
-        run: ./.github/scripts/check-vulnerabilities.bash
+        env:
+          GOFLAGS: -mod=vendor
+        run: govulncheck ./...

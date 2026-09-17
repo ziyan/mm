@@ -32,12 +32,8 @@ This program, as a user runs it against a Mattermost server. In particular:
 
 ## What is not
 
-- The Mattermost server itself. This is a client; it vendors
-  `mattermost/server/public` for the API types, which requires the server
-  module, so a scan of this repository reports advisories filed against the
-  server. It never runs that code.
-  `.github/scripts/check-vulnerabilities.bash` sets that module aside by name
-  and fails on anything else.
+- The Mattermost server itself. This is a client. It vendors
+  `mattermost/server/public` for the API types and never runs server code.
 - What a token is allowed to do. The server decides that. A token that can
   read a channel is meant to read it, and `--channels public` reaching a
   public channel you have left is the API working as documented.
