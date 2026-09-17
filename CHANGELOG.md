@@ -4,6 +4,16 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.6.0] - 2026-09-17
+
+### Added
+
+- `mm archive`, a local archive of the channels you can read, including direct and group messages, synced incrementally and searchable offline. (#14)
+
+### Security
+
+- Scheduled scans for known vulnerabilities and leaked secrets, Dependabot updates, and CI actions pinned to commits. Raising the `go` directive to 1.25.13 and gRPC to 1.83.1 clears 48 reachable vulnerabilities. (#15)
+
 ## [Unreleased]
 
 ### Security
