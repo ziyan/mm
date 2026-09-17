@@ -15,8 +15,8 @@ github.com/dyatlov/go-opengraph/opengraph/types/image
 github.com/dyatlov/go-opengraph/opengraph/types/music
 github.com/dyatlov/go-opengraph/opengraph/types/profile
 github.com/dyatlov/go-opengraph/opengraph/types/video
-# github.com/fatih/color v1.18.0
-## explicit; go 1.17
+# github.com/fatih/color v1.19.0
+## explicit; go 1.25.0
 github.com/fatih/color
 # github.com/francoispqt/gojay v1.2.13
 ## explicit; go 1.12

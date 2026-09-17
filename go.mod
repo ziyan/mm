@@ -3,7 +3,7 @@ module github.com/ziyan/mm
 go 1.25.13
 
 require (
-	github.com/fatih/color v1.18.0
+	github.com/fatih/color v1.19.0
 	github.com/mattermost/mattermost/server/public v0.2.1
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/spf13/cobra v1.10.2
