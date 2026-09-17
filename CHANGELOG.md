@@ -4,6 +4,16 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.6.1] - 2026-09-17
+
+### Fixed
+
+- The changelog guard no longer fails every Dependabot pull request. (#26)
+
+### Security
+
+- A security policy, pointing at GitHub's private vulnerability reporting. (#24)
+
 ## [0.6.0] - 2026-09-17
 
 ### Added
