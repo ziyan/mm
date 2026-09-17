@@ -13,7 +13,14 @@ jobs:
   check:
     name: Verify PR description changelog block
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+    # Dependabot writes the body, and it cannot be asked for a changelog
+    # entry. Requiring one of it means every dependency update arrives red and
+    # somebody clicks a label to make it green, which teaches the label to
+    # mean nothing. A bump that does deserve an entry can still have one
+    # written into the release notes by hand.
+    if: >-
+      ${{ github.event.pull_request.user.login != 'dependabot[bot]'
+          && !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
