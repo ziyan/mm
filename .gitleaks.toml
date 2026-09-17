@@ -1,0 +1,22 @@
+# Configuration for gitleaks, which .github/workflows/secrets.yml runs over the
+# whole history.
+#
+# The upstream rules are the useful part; everything here is a correction to
+# them for this repository. Keep this file short. A long allowlist is a
+# scanner nobody trusts, and the point of running a generic detector is that
+# it finds the shapes we did not think to look for.
+
+[extend]
+# Take the default rule set rather than restating it, so a detector added
+# upstream arrives here without a change.
+useDefault = true
+
+[allowlist]
+description = "Vendored code"
+
+paths = [
+  # Vendored dependencies are somebody else's code. A finding in them is
+  # theirs to fix and ours to upgrade past, which is what govulncheck already
+  # watches for.
+  '''^vendor/''',
+]
