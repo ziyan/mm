@@ -151,7 +151,7 @@ github.com/wiggin77/merror
 # github.com/wiggin77/srslog v1.0.1
 ## explicit; go 1.14
 github.com/wiggin77/srslog
-# golang.org/x/crypto v0.55.0
+# golang.org/x/crypto v0.52.0
 ## explicit; go 1.25.0
 golang.org/x/crypto/bcrypt
 golang.org/x/crypto/blowfish
@@ -160,7 +160,7 @@ golang.org/x/crypto/scrypt
 # golang.org/x/mod v0.38.0
 ## explicit; go 1.25.0
 golang.org/x/mod/semver
-# golang.org/x/net v0.58.0
+# golang.org/x/net v0.55.0
 ## explicit; go 1.25.0
 golang.org/x/net/html
 golang.org/x/net/html/atom
@@ -189,7 +189,7 @@ golang.org/x/text/unicode/norm
 # google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa
 ## explicit; go 1.25.0
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.83.2
+# google.golang.org/grpc v1.83.1
 ## explicit; go 1.25.0
 google.golang.org/grpc
 google.golang.org/grpc/attributes
