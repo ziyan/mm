@@ -319,7 +319,27 @@ func (self *Store) AppendPosts(teamName, channelName string, lines []json.RawMes
 	if !tail.EndsWithNewline {
 		lines = append([]json.RawMessage{nil}, lines...)
 	}
-	return writeLines(path, os.O_APPEND, lines)
+
+	// The index is only extended if it matched the posts before this append.
+	// A channel with no posts yet and no index counts as matching, so a new
+	// channel is indexed from its first post.
+	postsSize, err := fileSize(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("archive: reading %s: %w", path, err)
+	}
+	isIndexCurrent := self.isIndexCurrentAt(teamName, channelName, postsSize)
+	if os.IsNotExist(err) {
+		_, indexErr := os.Stat(self.IndexPath(teamName, channelName))
+		isIndexCurrent = os.IsNotExist(indexErr)
+	}
+
+	if err := writeLines(path, os.O_APPEND, lines); err != nil {
+		return err
+	}
+	if !isIndexCurrent {
+		return nil
+	}
+	return self.appendIndex(teamName, channelName, lines)
 }
 
 // MergePosts rewrites one channel's file as what is on disk plus additions,
@@ -392,7 +412,9 @@ func (self *Store) MergePosts(teamName, channelName string, additions []json.Raw
 	if err := os.Rename(temporary, path); err != nil {
 		return fmt.Errorf("archive: replacing %s: %w", path, err)
 	}
-	return nil
+	// A merge puts posts in the middle of the file, which an append to the
+	// index cannot follow, so the index is written again from the posts.
+	return self.RebuildIndex(teamName, channelName)
 }
 
 // postCreateAt reads the creation time off one archived post. A line that does

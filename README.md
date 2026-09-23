@@ -257,6 +257,7 @@ mm archive exclude ~/mattermost-archive noisy-alerts   # and stop reading this o
 mm archive exclude ~/mattermost-archive noisy-alerts --remove
 
 mm archive status ~/mattermost-archive            # what the archive holds
+mm archive reindex ~/mattermost-archive           # build the search index for an older archive
 mm archive search ~/mattermost-archive "deadlock" # search it offline
 mm archive search ~/mattermost-archive "timeout" -c general-chat -u alice --since 2026-01-01
 mm archive search ~/mattermost-archive "timeout" --team platform   # only teams whose name matches
@@ -275,6 +276,7 @@ users.json                     every user seen, so a search can print names offl
 me.json                        the authenticated user
 state.json                     per-channel high-water mark, for the next sync
 posts/<team>/<channel>.jsonl   one post per line, oldest first, as the server sent it
+index/<team>/<channel>.jsonl   the fields a search reads, one line per post
 excluded.json                  channels a sync leaves alone, if any
 posts/direct/<username>.jsonl  direct messages, one file per person
 posts/group/<usernames>.jsonl  group messages, named after the people in them
@@ -284,6 +286,16 @@ files/<fileId>__<name>         attachment contents
 
 Posts are stored exactly as the server sent them rather than re-encoded, so a
 field this version of `mm` does not know about is still there for a later one.
+
+A post as the server sends it is mostly metadata: link previews, reactions, file
+details, properties. On a large archive the message text is a few percent of the
+bytes. So beside each channel's posts a sync keeps a compact index holding only
+what a search reads, and `search` and `status` read that instead. The posts stay
+the source of truth: each index records the size of the posts file it was built
+from, and one that no longer matches is ignored in favor of the posts. An index
+can make a search slower when it is missing or stale, never make it miss
+anything. `mm archive reindex` builds indexes for an archive written before they
+existed.
 
 A sync reads a channel by paging it newest first until it reaches what is
 already archived. It does not enumerate with the `since` parameter: that response is capped at about a thousand posts and is

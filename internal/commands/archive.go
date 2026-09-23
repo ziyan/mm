@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
@@ -108,6 +110,19 @@ func init() {
 	}
 	excludeCommand.Flags().Bool("remove", false, "Take the patterns off the list instead of adding them")
 
+	reindexCommand := &cobra.Command{
+		Use:   "reindex <directory>",
+		Short: "Build the search index for channels that lack a current one",
+		Long: "A search reads a compact index beside each channel rather than the posts, " +
+			"which are mostly metadata a search never looks at. A sync keeps the index up " +
+			"to date as it writes. This builds it for an archive written before indexes " +
+			"existed, or for any channel whose index no longer matches its posts.",
+		Args: cobra.ExactArgs(1),
+		RunE: archiveReindexRun,
+	}
+	reindexCommand.Flags().Bool("all", false, "Rebuild every index, not only the ones that are out of date")
+	reindexCommand.Flags().Int("workers", runtime.NumCPU(), "How many channels to index at once")
+
 	statusCommand := &cobra.Command{
 		Use:   "status <directory>",
 		Short: "Show what the archive holds",
@@ -115,7 +130,7 @@ func init() {
 		RunE:  archiveStatusRun,
 	}
 
-	archiveCommand.AddCommand(syncCommand, searchCommand, statusCommand, excludeCommand)
+	archiveCommand.AddCommand(syncCommand, searchCommand, statusCommand, excludeCommand, reindexCommand)
 	rootCommand.AddCommand(archiveCommand)
 }
 
@@ -1274,16 +1289,20 @@ func archiveStatusRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
-	postCount := int64(0)
+	// Counting lines, rather than parsing posts, and in the index where it
+	// matches the posts, which is a small fraction of the bytes.
+	postCount, indexedCount := int64(0), 0
 	var latest int64
 	for _, channelFile := range channelFiles {
-		err := archive.ReadPosts(channelFile.Path, func(line []byte) bool {
-			postCount++
-			return true
-		})
+		path, isIndexed := store.SearchPath(channelFile)
+		if isIndexed {
+			indexedCount++
+		}
+		lineCount, err := archive.CountLines(path)
 		if err != nil {
 			return err
 		}
+		postCount += lineCount
 	}
 	for _, channelState := range state {
 		if channelState.LastCreateAt > latest {
@@ -1293,15 +1312,16 @@ func archiveStatusRun(command *cobra.Command, arguments []string) error {
 
 	if printer.JSONOutput {
 		printer.PrintJSON(map[string]interface{}{
-			"directory":    store.Directory(),
-			"channels":     len(channelFiles),
-			"posts":        postCount,
-			"last_post_at": latest,
+			"directory":        store.Directory(),
+			"channels":         len(channelFiles),
+			"indexed_channels": indexedCount,
+			"posts":            postCount,
+			"last_post_at":     latest,
 		})
 		return nil
 	}
 	printer.PrintInfo("Directory:  %s", store.Directory())
-	printer.PrintInfo("Channels:   %d", len(channelFiles))
+	printer.PrintInfo("Channels:   %d (%d indexed)", len(channelFiles), indexedCount)
 	printer.PrintInfo("Posts:      %d", postCount)
 	if latest > 0 {
 		printer.PrintInfo("Newest:     %s", time.UnixMilli(latest).Format("2006-01-02 15:04"))
@@ -1396,4 +1416,67 @@ func archiveGetOnce(ctx context.Context, apiClient *model.Client4, path string) 
 func readBody(response *http.Response) ([]byte, error) {
 	defer func() { _ = response.Body.Close() }()
 	return io.ReadAll(response.Body)
+}
+
+func archiveReindexRun(command *cobra.Command, arguments []string) error {
+	store, err := archive.Open(arguments[0])
+	if err != nil {
+		return err
+	}
+	shouldRebuildAll, _ := command.Flags().GetBool("all")
+	workerCount, _ := command.Flags().GetInt("workers")
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	channelFiles, err := store.ChannelFiles()
+	if err != nil {
+		return err
+	}
+	var stale []*archive.ChannelFile
+	for _, channelFile := range channelFiles {
+		if shouldRebuildAll {
+			stale = append(stale, channelFile)
+			continue
+		}
+		if _, isIndexed := store.SearchPath(channelFile); !isIndexed {
+			stale = append(stale, channelFile)
+		}
+	}
+	printer.PrintInfo("%d of %d channels to index", len(stale), len(channelFiles))
+	if len(stale) == 0 {
+		return nil
+	}
+
+	// Indexing is reading and rewriting, so it runs one channel per core.
+	queue := make(chan *archive.ChannelFile)
+	failures := make(chan error, len(stale))
+	var waitGroup sync.WaitGroup
+	var doneCount atomic.Int64
+	for worker := 0; worker < workerCount; worker++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for channelFile := range queue {
+				if err := store.RebuildIndex(channelFile.TeamName, channelFile.ChannelName); err != nil {
+					failures <- err
+					continue
+				}
+				if done := doneCount.Add(1); done%200 == 0 {
+					printer.PrintInfo("  %d/%d channels indexed", done, len(stale))
+				}
+			}
+		}()
+	}
+	for _, channelFile := range stale {
+		queue <- channelFile
+	}
+	close(queue)
+	waitGroup.Wait()
+	close(failures)
+	for err := range failures {
+		return err
+	}
+	printer.PrintSuccess("%d channels indexed", doneCount.Load())
+	return nil
 }
