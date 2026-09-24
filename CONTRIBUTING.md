@@ -195,10 +195,10 @@ Always use `-mod=vendor` when building or testing.
 The project uses golangci-lint with the following staticcheck rules suppressed (see `.golangci.yml`):
 
 - **ST1000**: Package comments are not required
-- **ST1003**: Acronym casing follows the Mujin convention, not Go standard
+- **ST1003**: Acronym casing follows the project convention, not Go standard
 - **ST1006**: Receiver name `self` is intentional
 
-The project also follows the Mujin coding standard, enforced locally by `mulint`. Configuration is in `mulint.yaml`. Conventions:
+The project also follows a coding standard enforced locally by `mulint`, an optional linter. Configuration is in `mulint.yaml`. Conventions:
 
 - Acronym casing: lowercase-first identifier capitalizes only the first letter (`postJson`, `serverUrl`); capitalized-first identifier capitalizes the full acronym (`WebSocketURL`, `SessionID`).
 - No abbreviations: `arguments` not `args`, `command` not `cmd`, `response` not `resp`.
@@ -206,7 +206,7 @@ The project also follows the Mujin coding standard, enforced locally by `mulint`
 - Every error message starts with `<package>: `, e.g. `fmt.Errorf("commands: listing bots: %w", err)`.
 - Every package declares `var log = logging.MustGetLogger("<pkg>") //nolint:unused`.
 
-`make lint` runs `golangci-lint` and (if installed) `mulint`. Install mulint from `~/mujin/dev/mulint`.
+`make lint` runs `golangci-lint` and (if installed) `mulint`.
 
 ### Commit messages
 

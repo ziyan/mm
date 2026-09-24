@@ -76,7 +76,7 @@ func TestNormalizeDisplayName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"Mujin Team - Quicktron AGVs", "mujin team - quicktron agvs"},
+		{"Ops Team - Blue Widgets", "ops team - blue widgets"},
 		{"Town Square", "town square"},
 		{"  extra   spaces  ", "extra spaces"},
 		{"ALLCAPS", "allcaps"},
@@ -143,9 +143,9 @@ func TestIntegrationChannelResolveByDisplayNameWithPunctuation(t *testing.T) {
 	skipIntegration(t)
 
 	// Create a channel with hyphens, spaces, and mixed case in the display name,
-	// mimicking names like "Mujin Team - Quicktron AGVs" that fail search tokenization.
+	// mimicking names like "Ops Team - Blue Widgets" that fail search tokenization.
 	channelName := fmt.Sprintf("int-punct-%d", time.Now().UnixNano())
-	displayName := "Int Team - Quicktron AGVs"
+	displayName := "Int Team - Blue Widgets"
 	output, err := runCommand("channel", "create", channelName, "--display-name", displayName)
 	if err != nil {
 		t.Fatalf("channel create failed: %v\n%s", err, output)

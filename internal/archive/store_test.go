@@ -11,7 +11,7 @@ import (
 func TestSafeName(t *testing.T) {
 	cases := map[string]string{
 		"town-square":      "town-square",
-		"engineering/team": "engineering_team",
+		"example-team/team": "example-team_team",
 		"a b c":            "a_b_c",
 		"日本語":              "___",
 	}
@@ -40,7 +40,7 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 
 	written := map[string]*ChannelState{
-		"channel1": {TeamName: "engineering", ChannelName: "backend", LastCreateAt: 42, IsArchived: true},
+		"channel1": {TeamName: "example-team", ChannelName: "general-chat", LastCreateAt: 42, IsArchived: true},
 	}
 	if err := store.SaveState(written); err != nil {
 		t.Fatalf("saving state: %v", err)
@@ -72,8 +72,8 @@ func TestMergeChannelsKeepsWhatItDidNotSee(t *testing.T) {
 	}
 
 	first := []json.RawMessage{
-		json.RawMessage(`{"id":"one","name":"backend","_team":"engineering"}`),
-		json.RawMessage(`{"id":"two","name":"vision","_team":"engineering"}`),
+		json.RawMessage(`{"id":"one","name":"general-chat","_team":"example-team"}`),
+		json.RawMessage(`{"id":"two","name":"random-chat","_team":"example-team"}`),
 	}
 	if err := store.MergeChannels(first); err != nil {
 		t.Fatalf("merging the first listing: %v", err)
@@ -81,7 +81,7 @@ func TestMergeChannelsKeepsWhatItDidNotSee(t *testing.T) {
 
 	// A sync narrowed with --only sees one channel. The other must survive.
 	second := []json.RawMessage{
-		json.RawMessage(`{"id":"one","name":"backend","_team":"engineering","display_name":"Backend"}`),
+		json.RawMessage(`{"id":"one","name":"general-chat","_team":"example-team","display_name":"General Chat"}`),
 	}
 	if err := store.MergeChannels(second); err != nil {
 		t.Fatalf("merging the second listing: %v", err)
@@ -94,10 +94,10 @@ func TestMergeChannelsKeepsWhatItDidNotSee(t *testing.T) {
 	if len(channels) != 2 {
 		t.Fatalf("expected 2 channels after a narrowed sync, got %d", len(channels))
 	}
-	if channels["one"].DisplayName != "Backend" {
+	if channels["one"].DisplayName != "General Chat" {
 		t.Errorf("the second listing did not replace the first: %+v", channels["one"])
 	}
-	if channels["two"].Name != "vision" {
+	if channels["two"].Name != "random-chat" {
 		t.Errorf("a channel the narrowed sync did not see was dropped")
 	}
 }
@@ -112,10 +112,10 @@ func TestAppendAndReadPosts(t *testing.T) {
 		json.RawMessage(`{"id":"p1","create_at":1,"message":"first"}`),
 		json.RawMessage(`{"id":"p2","create_at":2,"message":"second"}`),
 	}
-	if err := store.AppendPosts("engineering", "backend", lines); err != nil {
+	if err := store.AppendPosts("example-team", "general-chat", lines); err != nil {
 		t.Fatalf("appending posts: %v", err)
 	}
-	if err := store.AppendPosts("engineering", "backend",
+	if err := store.AppendPosts("example-team", "general-chat",
 		[]json.RawMessage{json.RawMessage(`{"id":"p3","create_at":3,"message":"third"}`)}); err != nil {
 		t.Fatalf("appending more posts: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestAppendAndReadPosts(t *testing.T) {
 	if len(channelFiles) != 1 {
 		t.Fatalf("expected 1 channel file, got %d", len(channelFiles))
 	}
-	if channelFiles[0].TeamName != "engineering" || channelFiles[0].ChannelName != "backend" {
+	if channelFiles[0].TeamName != "example-team" || channelFiles[0].ChannelName != "general-chat" {
 		t.Errorf("channel file named wrong: %+v", channelFiles[0])
 	}
 
@@ -191,8 +191,8 @@ func TestReferencedFileIDs(t *testing.T) {
 		t.Fatalf("opening the archive: %v", err)
 	}
 	if err := store.AppendFiles([]*ArchivedFile{
-		{FileID: "f1", PostID: "p1", ChannelName: "backend", TeamName: "engineering", CreateAt: 1},
-		{FileID: "f2", PostID: "p2", ChannelName: "backend", TeamName: "engineering", CreateAt: 2},
+		{FileID: "f1", PostID: "p1", ChannelName: "general-chat", TeamName: "example-team", CreateAt: 1},
+		{FileID: "f2", PostID: "p2", ChannelName: "general-chat", TeamName: "example-team", CreateAt: 2},
 	}); err != nil {
 		t.Fatalf("appending file records: %v", err)
 	}
