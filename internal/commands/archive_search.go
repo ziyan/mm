@@ -109,7 +109,21 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 		wantedFiles = append(wantedFiles, channelFile)
 	}
 
-	found, err := searchChannelFiles(wantedFiles, func(line []byte) *searchedPost {
+	// Each channel is read from its search index where the index matches the
+	// posts, and from the posts themselves where it does not.
+	searchFiles := make([]*archive.ChannelFile, 0, len(wantedFiles))
+	unindexedCount := 0
+	for _, channelFile := range wantedFiles {
+		path, isIndexed := store.SearchPath(channelFile)
+		if !isIndexed {
+			unindexedCount++
+		}
+		searchFiles = append(searchFiles, &archive.ChannelFile{
+			TeamName: channelFile.TeamName, ChannelName: channelFile.ChannelName, Path: path,
+		})
+	}
+
+	found, err := searchChannelFiles(searchFiles, func(line []byte) *searchedPost {
 		if matcher.prefilter != nil && !matcher.prefilter(line) {
 			return nil
 		}
@@ -217,6 +231,9 @@ func archiveSearchRun(command *cobra.Command, arguments []string) error {
 		printer.PrintInfo("%d matches, showing %d. Raise --limit to see more.", totalCount, limit)
 	} else {
 		printer.PrintInfo("%d matches.", totalCount)
+	}
+	if unindexedCount > 0 {
+		printer.PrintInfo("%d channels were read without an index. mm archive reindex makes that faster.", unindexedCount)
 	}
 	return nil
 }
