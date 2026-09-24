@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/ziyan/mm/internal/printer"
 )
 
@@ -59,9 +61,27 @@ func runCommand(arguments ...string) (string, error) {
 	_ = rootCommand.PersistentFlags().Set("token", "")
 	_ = rootCommand.PersistentFlags().Set("server", "")
 	_ = rootCommand.PersistentFlags().Set("team", "")
+	resetLocalFlags(rootCommand)
 	rootCommand.SetArgs(arguments)
 	err := rootCommand.Execute()
 	return buf.String(), err
+}
+
+// resetLocalFlags restores every subcommand flag to its default. The tests reuse
+// one command tree, so without this a flag such as --file from one call would
+// still apply to the next call of the same subcommand.
+func resetLocalFlags(command *cobra.Command) {
+	command.LocalNonPersistentFlags().VisitAll(func(flag *pflag.Flag) {
+		if sliceValue, ok := flag.Value.(pflag.SliceValue); ok {
+			_ = sliceValue.Replace(nil)
+		} else {
+			_ = flag.Value.Set(flag.DefValue)
+		}
+		flag.Changed = false
+	})
+	for _, child := range command.Commands() {
+		resetLocalFlags(child)
+	}
 }
 
 // runCommandJSON executes a CLI command with --json and parses the output.
