@@ -20,10 +20,11 @@ func init() {
 
 	sendCommand := &cobra.Command{
 		Use:   "send <username> [message]",
-		Short: "Send a direct message (reads from stdin if no message given)",
+		Short: "Send a direct message (reads from stdin if no message or file given)",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  dmSendRun,
 	}
+	sendCommand.Flags().StringArrayP("file", "f", nil, "Attach file(s)")
 
 	readCommand := &cobra.Command{
 		Use:   "read <username>",
@@ -40,11 +41,12 @@ func init() {
 	}
 
 	groupCommand := &cobra.Command{
-		Use:   "group <username1,username2,...> <message>",
+		Use:   "group <username1,username2,...> [message]",
 		Short: "Send a group message",
-		Args:  cobra.MinimumNArgs(2),
+		Args:  cobra.MinimumNArgs(1),
 		RunE:  dmGroupRun,
 	}
+	groupCommand.Flags().StringArrayP("file", "f", nil, "Attach file(s)")
 
 	dmCommand.AddCommand(sendCommand, readCommand, listCommand, groupCommand)
 	rootCommand.AddCommand(dmCommand)
@@ -80,10 +82,14 @@ func dmSendRun(command *cobra.Command, arguments []string) error {
 		return fmt.Errorf("commands: creating DM channel: %w", err)
 	}
 
+	filePaths, _ := command.Flags().GetStringArray("file")
+
+	// A message that only carries attachments needs no text, so stdin is read
+	// only when there is neither a message argument nor a file.
 	var message string
 	if len(arguments) > 1 {
 		message = strings.Join(arguments[1:], " ")
-	} else {
+	} else if len(filePaths) == 0 {
 		data, err := os.ReadFile("/dev/stdin")
 		if err != nil {
 			return fmt.Errorf("commands: no message provided and cannot read stdin: %w", err)
@@ -94,9 +100,15 @@ func dmSendRun(command *cobra.Command, arguments []string) error {
 		}
 	}
 
+	fileIds, err := uploadFiles(ctx, apiClient, channel.Id, filePaths)
+	if err != nil {
+		return err
+	}
+
 	post, _, err := apiClient.CreatePost(ctx, &model.Post{
 		ChannelId: channel.Id,
 		Message:   message,
+		FileIds:   fileIds,
 	})
 	if err != nil {
 		return fmt.Errorf("commands: sending DM: %w", err)
@@ -238,6 +250,12 @@ func dmListRun(command *cobra.Command, arguments []string) error {
 }
 
 func dmGroupRun(command *cobra.Command, arguments []string) error {
+	message := strings.Join(arguments[1:], " ")
+	filePaths, _ := command.Flags().GetStringArray("file")
+	if message == "" && len(filePaths) == 0 {
+		return fmt.Errorf("commands: no message or file provided")
+	}
+
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
@@ -273,10 +291,15 @@ func dmGroupRun(command *cobra.Command, arguments []string) error {
 		return fmt.Errorf("commands: creating group channel: %w", err)
 	}
 
-	message := strings.Join(arguments[1:], " ")
+	fileIds, err := uploadFiles(ctx, apiClient, channel.Id, filePaths)
+	if err != nil {
+		return err
+	}
+
 	post, _, err := apiClient.CreatePost(ctx, &model.Post{
 		ChannelId: channel.Id,
 		Message:   message,
+		FileIds:   fileIds,
 	})
 	if err != nil {
 		return fmt.Errorf("commands: sending group message: %w", err)

@@ -153,3 +153,25 @@ func fileInfoRun(command *cobra.Command, arguments []string) error {
 	printer.PrintInfo("Created:   %s", printer.FormatTime(fileInfo.CreateAt))
 	return nil
 }
+
+// uploadFiles uploads each local file to the channel and returns the file IDs
+// in order, for attaching to a post. The server stores each file under its base
+// name, so a local directory never leaks into the attachment name.
+func uploadFiles(ctx context.Context, apiClient *model.Client4, channelId string, filePaths []string) ([]string, error) {
+	fileIds := make([]string, 0, len(filePaths))
+	for _, filePath := range filePaths {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("commands: reading %s: %w", filePath, err)
+		}
+		response, _, err := apiClient.UploadFile(ctx, data, channelId, filepath.Base(filePath))
+		if err != nil {
+			return nil, fmt.Errorf("commands: uploading %s: %w", filePath, err)
+		}
+		if len(response.FileInfos) == 0 {
+			return nil, fmt.Errorf("commands: uploading %s: server returned no file info", filePath)
+		}
+		fileIds = append(fileIds, response.FileInfos[0].Id)
+	}
+	return fileIds, nil
+}

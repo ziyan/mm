@@ -184,10 +184,12 @@ mm post remind <post-id> 1h                    # set reminder
 ```bash
 mm dm send <username> [message]                 # send a DM
 echo "hello" | mm dm send <username>           # pipe message from stdin
+mm dm send <username> [message] -f file.png     # DM with attachment (message optional)
 mm dm read <username>                           # read DM history
 mm dm read <username> -n 50                     # last 50 messages
 mm dm list                                      # list DM conversations
 mm dm group user1,user2 <message>               # send group message
+mm dm group user1,user2 -f report.pdf           # group message with attachment
 ```
 
 ### Threads
