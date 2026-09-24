@@ -116,7 +116,8 @@ func init() {
 		Long: "A search reads a compact index beside each channel rather than the posts, " +
 			"which are mostly metadata a search never looks at. A sync keeps the index up " +
 			"to date as it writes. This builds it for an archive written before indexes " +
-			"existed, or for any channel whose index no longer matches its posts.",
+			"existed, or for any channel whose index no longer matches its posts. " +
+			"Run it while no sync is writing to the same archive.",
 		Args: cobra.ExactArgs(1),
 		RunE: archiveReindexRun,
 	}

@@ -336,10 +336,19 @@ func (self *Store) AppendPosts(teamName, channelName string, lines []json.RawMes
 	if err := writeLines(path, os.O_APPEND, lines); err != nil {
 		return err
 	}
-	if !isIndexCurrent {
-		return nil
+	// The posts are written by now, so a failure here only costs speed: a
+	// search ignores an index that does not match its posts.
+	if isIndexCurrent {
+		err = self.appendIndex(teamName, channelName, lines)
+	} else {
+		// An index that was behind cannot be extended, so it is written again.
+		// That happens once, after which appends keep it current.
+		err = self.RebuildIndex(teamName, channelName)
 	}
-	return self.appendIndex(teamName, channelName, lines)
+	if err != nil {
+		log.Warningf("archive: leaving the index of %s/%s out of date: %v", teamName, channelName, err)
+	}
+	return nil
 }
 
 // MergePosts rewrites one channel's file as what is on disk plus additions,
@@ -414,7 +423,10 @@ func (self *Store) MergePosts(teamName, channelName string, additions []json.Raw
 	}
 	// A merge puts posts in the middle of the file, which an append to the
 	// index cannot follow, so the index is written again from the posts.
-	return self.RebuildIndex(teamName, channelName)
+	if err := self.RebuildIndex(teamName, channelName); err != nil {
+		log.Warningf("archive: leaving the index of %s/%s out of date: %v", teamName, channelName, err)
+	}
+	return nil
 }
 
 // postCreateAt reads the creation time off one archived post. A line that does

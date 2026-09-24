@@ -148,6 +148,11 @@ func (self *Store) RebuildIndex(teamName, channelName string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("archive: creating %s: %w", filepath.Dir(path), err)
 	}
+	// The recorded size vouches for the index about to be replaced, so it goes
+	// first. A rebuild cut short then leaves the channel read from its posts.
+	if err := os.Remove(self.indexSizePath(teamName, channelName)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("archive: removing %s: %w", self.indexSizePath(teamName, channelName), err)
+	}
 	temporary := path + ".tmp"
 	file, err := os.OpenFile(temporary, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -178,6 +183,11 @@ func (self *Store) RebuildIndex(teamName, channelName string) error {
 	}
 	if err := os.Rename(temporary, path); err != nil {
 		return fmt.Errorf("archive: replacing %s: %w", path, err)
+	}
+	// Posts that arrived while this ran may or may not be in the new index, so
+	// it is recorded only if the posts file did not change.
+	if currentSize, err := fileSize(postsPath); err != nil || currentSize != postsSize {
+		return fmt.Errorf("archive: %s changed while its index was built", postsPath)
 	}
 	return writeFileAtomic(self.indexSizePath(teamName, channelName), []byte(strconv.FormatInt(postsSize, 10)+"\n"))
 }

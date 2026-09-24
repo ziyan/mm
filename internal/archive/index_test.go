@@ -61,8 +61,9 @@ func TestIndexFollowsAppends(t *testing.T) {
 
 // An archive from before indexes existed has posts and no index. Appending to
 // it must not create an index of just the new posts that then claims to be
-// complete, or a search would silently skip everything older.
-func TestAppendDoesNotMakeAMissingIndexLookCurrent(t *testing.T) {
+// complete, or a search would silently skip everything older. The append
+// rebuilds the index from all the posts instead.
+func TestAppendRebuildsAMissingIndex(t *testing.T) {
 	store, err := Create(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -78,19 +79,8 @@ func TestAppendDoesNotMakeAMissingIndexLookCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	path, isIndexed := store.SearchPath(channelFileFor(store, "team", "channel"))
-	if isIndexed {
-		t.Fatal("an index missing older posts must not be taken as current")
-	}
-	if path != store.PostsPath("team", "channel") {
-		t.Errorf("a search should fall back to the posts, got %s", path)
-	}
-
-	if err := store.RebuildIndex("team", "channel"); err != nil {
-		t.Fatal(err)
-	}
-	path, isIndexed = store.SearchPath(channelFileFor(store, "team", "channel"))
 	if !isIndexed {
-		t.Fatal("a rebuilt index should be current")
+		t.Fatal("the append should have rebuilt the index")
 	}
 	if lineCount, _ := CountLines(path); lineCount != 2 {
 		t.Errorf("the rebuilt index should hold both posts, got %d", lineCount)
@@ -154,5 +144,28 @@ func TestCountLines(t *testing.T) {
 		if lineCount, err := CountLines(path); err != nil || lineCount != expected {
 			t.Errorf("CountLines(%q) = %d, %v; expected %d", content, lineCount, err, expected)
 		}
+	}
+}
+
+// The posts are what an append must not lose. An index that cannot be written
+// is only slower to search, so it does not fail the append.
+func TestAppendSucceedsWhenTheIndexCannotBeWritten(t *testing.T) {
+	store, err := Create(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A plain file where the index directory belongs makes every index write fail.
+	if err := os.WriteFile(store.IndexDirectory(), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendPosts("team", "channel", []json.RawMessage{indexTestPost("p1", 1, "one")}); err != nil {
+		t.Fatalf("the append should succeed without an index: %v", err)
+	}
+	path, isIndexed := store.SearchPath(channelFileFor(store, "team", "channel"))
+	if isIndexed {
+		t.Fatal("no index was written, so none can be current")
+	}
+	if lineCount, _ := CountLines(path); lineCount != 1 {
+		t.Errorf("the post should be archived, got %d lines", lineCount)
 	}
 }
