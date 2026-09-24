@@ -35,7 +35,7 @@ coverage:
 lint:
 	golangci-lint run ./...
 	@if command -v mulint >/dev/null 2>&1; then mulint ./... ; \
-	else echo "mulint not installed; skipping Mujin naming/error-prefix checks. Install from ~/mujin/dev/mulint." ; fi
+	else echo "mulint not installed; skipping naming/error-prefix checks." ; fi
 
 format:
 	gofmt -s -w .

@@ -32,7 +32,7 @@ func TestArchiveWritePostsStoresEachPostOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	channel := &archiveChannel{ID: "channel1", Name: "backend", TeamName: "engineering"}
+	channel := &archiveChannel{ID: "channel1", Name: "general-chat", TeamName: "example-team"}
 
 	first := map[string]json.RawMessage{
 		"post2": rawPost("post2", 200, "second"),
@@ -77,7 +77,7 @@ func TestArchiveWritePostsStoresEachPostOnce(t *testing.T) {
 	}
 
 	var ids []string
-	err = store.ScanPosts("engineering", "backend", func(line []byte) bool {
+	err = store.ScanPosts("example-team", "general-chat", func(line []byte) bool {
 		header := &postHeader{}
 		if err := json.Unmarshal(line, header); err != nil {
 			t.Fatal(err)
@@ -91,7 +91,7 @@ func TestArchiveWritePostsStoresEachPostOnce(t *testing.T) {
 	if fmt.Sprint(ids) != "[post1 post2 post3 post4]" {
 		t.Fatalf("expected posts once each, oldest first, got %v", ids)
 	}
-	if _, err := os.Stat(store.PostsPath("engineering", "backend") + ".tmp"); !os.IsNotExist(err) {
+	if _, err := os.Stat(store.PostsPath("example-team", "general-chat") + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("temporary file left behind: %v", err)
 	}
 }
@@ -176,7 +176,7 @@ func TestArchiveWritePostsDetectsAStaleMark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	channel := &archiveChannel{ID: "channel1", Name: "backend", TeamName: "engineering"}
+	channel := &archiveChannel{ID: "channel1", Name: "general-chat", TeamName: "example-team"}
 	batch := map[string]json.RawMessage{
 		"post2": rawPost("post2", 200, "second"),
 		"post3": rawPost("post3", 300, "third"),
@@ -194,7 +194,7 @@ func TestArchiveWritePostsDetectsAStaleMark(t *testing.T) {
 		t.Fatalf("expected only post4 to be fresh after a stale mark, got %d posts", len(written.fresh))
 	}
 	count := 0
-	if err := store.ScanPosts("engineering", "backend", func(line []byte) bool { count++; return true }); err != nil {
+	if err := store.ScanPosts("example-team", "general-chat", func(line []byte) bool { count++; return true }); err != nil {
 		t.Fatal(err)
 	}
 	if count != 3 {
@@ -304,7 +304,7 @@ func TestArchiveWritePostsKeepsPostsSharingTheMark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	channel := &archiveChannel{ID: "channel1", Name: "backend", TeamName: "engineering"}
+	channel := &archiveChannel{ID: "channel1", Name: "general-chat", TeamName: "example-team"}
 
 	written, err := archiveWritePosts(store, channel, map[string]json.RawMessage{
 		"post1": rawPost("post1", 100, "first"),
@@ -330,7 +330,7 @@ func TestArchiveWritePostsKeepsPostsSharingTheMark(t *testing.T) {
 	}
 
 	var ids []string
-	if err := store.ScanPosts("engineering", "backend", func(line []byte) bool {
+	if err := store.ScanPosts("example-team", "general-chat", func(line []byte) bool {
 		header := &postHeader{}
 		if err := json.Unmarshal(line, header); err != nil {
 			t.Fatal(err)
@@ -350,7 +350,7 @@ func TestArchiveWritePostsKeepsPostsSharingTheMark(t *testing.T) {
 // apart. The boundary post must not be stored a second time.
 func TestMigrationNoBoundaryIds(t *testing.T) {
 	store, _ := archive.Create(t.TempDir())
-	channel := &archiveChannel{ID: "c1", Name: "backend", TeamName: "engineering"}
+	channel := &archiveChannel{ID: "c1", Name: "general-chat", TeamName: "example-team"}
 	if _, err := archiveWritePosts(store, channel, map[string]json.RawMessage{
 		"post1": rawPost("post1", 100, "first"),
 	}, 0, true); err != nil {
@@ -368,23 +368,23 @@ func TestMigrationNoBoundaryIds(t *testing.T) {
 		t.Fatalf("post1 was archived a second time: %+v", written.fresh)
 	}
 	count := 0
-	_ = store.ScanPosts("engineering", "backend", func(line []byte) bool { count++; return true })
+	_ = store.ScanPosts("example-team", "general-chat", func(line []byte) bool { count++; return true })
 	if count != 1 {
 		t.Fatalf("expected 1 post on disk, got %d", count)
 	}
 }
 
 func TestArchiveIsExcluded(t *testing.T) {
-	channel := &archiveChannel{ID: "y9qb63nn5ty48migkwiddzobrh", Name: "mon-testing", TeamName: "engineering"}
+	channel := &archiveChannel{ID: "abcdefghijklmnopqrstuvwxyz", Name: "noisy-alerts", TeamName: "example-team"}
 	cases := []struct {
 		pattern  string
 		expected bool
 	}{
-		{"y9qb63nn5ty48migkwiddzobrh", true},
-		{"mon-testing", true},
-		{"mon-", true},
-		{"testing", true},
-		{"mussh", false},
+		{"abcdefghijklmnopqrstuvwxyz", true},
+		{"noisy-alerts", true},
+		{"noisy-", true},
+		{"alerts", true},
+		{"bot-spam", false},
 		{"", false},
 	}
 	for _, testCase := range cases {
@@ -398,30 +398,30 @@ func TestArchiveIsExcluded(t *testing.T) {
 }
 
 func TestArchiveChangeExclusions(t *testing.T) {
-	patterns := archiveChangeExclusions(nil, []string{"mussh", "mon-testing"}, false)
-	if fmt.Sprint(patterns) != "[mussh mon-testing]" {
+	patterns := archiveChangeExclusions(nil, []string{"bot-spam", "noisy-alerts"}, false)
+	if fmt.Sprint(patterns) != "[bot-spam noisy-alerts]" {
 		t.Fatalf("expected both added in order, got %v", patterns)
 	}
 	// Adding again changes nothing.
-	patterns = archiveChangeExclusions(patterns, []string{"mussh"}, false)
+	patterns = archiveChangeExclusions(patterns, []string{"bot-spam"}, false)
 	if len(patterns) != 2 {
 		t.Errorf("a repeat should not be added twice, got %v", patterns)
 	}
-	patterns = archiveChangeExclusions(patterns, []string{"mussh"}, true)
-	if fmt.Sprint(patterns) != "[mon-testing]" {
-		t.Errorf("expected mussh removed, got %v", patterns)
+	patterns = archiveChangeExclusions(patterns, []string{"bot-spam"}, true)
+	if fmt.Sprint(patterns) != "[noisy-alerts]" {
+		t.Errorf("expected bot-spam removed, got %v", patterns)
 	}
 }
 
 func TestArchiveWithoutExcluded(t *testing.T) {
 	channels := []*archiveChannel{
-		{ID: "one", Name: "mon-testing"},
-		{ID: "two", Name: "backend"},
-		{ID: "three", Name: "mussh"},
+		{ID: "one", Name: "noisy-alerts"},
+		{ID: "two", Name: "general-chat"},
+		{ID: "three", Name: "bot-spam"},
 	}
-	kept, skipped := archiveWithoutExcluded(channels, []string{"mon-testing", "mussh"})
-	if skipped != 2 || len(kept) != 1 || kept[0].Name != "backend" {
-		t.Fatalf("expected only backend kept, got %d skipped and %v", skipped, kept)
+	kept, skipped := archiveWithoutExcluded(channels, []string{"noisy-alerts", "bot-spam"})
+	if skipped != 2 || len(kept) != 1 || kept[0].Name != "general-chat" {
+		t.Fatalf("expected only general-chat kept, got %d skipped and %v", skipped, kept)
 	}
 	kept, skipped = archiveWithoutExcluded(channels, nil)
 	if skipped != 0 || len(kept) != 3 {
@@ -447,7 +447,7 @@ func TestArchiveWritePostsFailureStopsTheRun(t *testing.T) {
 	}
 	defer func() { _ = os.Chmod(directory, 0o700) }()
 
-	channel := &archiveChannel{ID: "channel1", Name: "backend", TeamName: "engineering"}
+	channel := &archiveChannel{ID: "channel1", Name: "general-chat", TeamName: "example-team"}
 	work := &archiveChannelWork{channel: channel}
 	outcome := archiveSyncChannelWrite(store, work, map[string]json.RawMessage{
 		"post1": rawPost("post1", 100, "first"),

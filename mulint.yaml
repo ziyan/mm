@@ -1,4 +1,4 @@
-# mm follows the Mujin coding standard (see ~/mujin/dev/codeguide). All
+# mm follows the project coding standard (see CONTRIBUTING.md). All
 # analyzers are on; the per-project compounds list lets domain words
 # survive DP segmentation as a single piece.
 
