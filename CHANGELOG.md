@@ -4,6 +4,12 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.7.0] - 2026-09-24
+
+### Changed
+
+- `mm archive search` and `status` read a compact per-channel index instead of the raw posts; `mm archive reindex` builds it for an existing archive. (#28)
+
 ## [0.6.1] - 2026-09-17
 
 ### Fixed
