@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -29,6 +31,43 @@ func TestIntegrationDMSendJSON(t *testing.T) {
 	message, _ := post["message"].(string)
 	if message != "JSON DM test message" {
 		t.Errorf("expected message 'JSON DM test message', got: %s", message)
+	}
+}
+
+func TestIntegrationDMSendFile(t *testing.T) {
+	skipIntegration(t)
+	testFile := filepath.Join(t.TempDir(), "dm-attachment.txt")
+	if err := os.WriteFile(testFile, []byte("attached"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, output, err := runCommandJSON("dm", "send", "testuser2", "--file", testFile)
+	if err != nil {
+		t.Fatalf("dm send --file failed: %v\n%s", err, output)
+	}
+	post, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected JSON object, got: %T", result)
+	}
+	fileIds, _ := post["file_ids"].([]interface{})
+	if len(fileIds) != 1 {
+		t.Errorf("expected one attached file, got: %v", post["file_ids"])
+	}
+}
+
+func TestIntegrationDMGroupFile(t *testing.T) {
+	skipIntegration(t)
+	testFile := filepath.Join(t.TempDir(), "group-attachment.txt")
+	if err := os.WriteFile(testFile, []byte("attached"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := runCommand("dm", "group", "testuser2,testuser3", "-f", testFile)
+	if err != nil {
+		t.Fatalf("dm group --file failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "Sent group message") {
+		t.Errorf("expected 'Sent group message' in output, got: %s", output)
 	}
 }
 

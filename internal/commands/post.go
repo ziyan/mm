@@ -203,10 +203,14 @@ func postCreateRun(command *cobra.Command, arguments []string) error {
 		return err
 	}
 
+	filePaths, _ := command.Flags().GetStringArray("file")
+
+	// A post that only carries attachments needs no text, so stdin is read only
+	// when there is neither a message argument nor a file.
 	var message string
 	if len(arguments) > 1 {
 		message = strings.Join(arguments[1:], " ")
-	} else {
+	} else if len(filePaths) == 0 {
 		data, err := os.ReadFile("/dev/stdin")
 		if err != nil {
 			return fmt.Errorf("commands: no message provided and cannot read stdin")
@@ -215,7 +219,6 @@ func postCreateRun(command *cobra.Command, arguments []string) error {
 	}
 
 	rootId, _ := command.Flags().GetString("root-id")
-	filePaths, _ := command.Flags().GetStringArray("file")
 
 	post := &model.Post{
 		ChannelId: channelId,
@@ -223,16 +226,9 @@ func postCreateRun(command *cobra.Command, arguments []string) error {
 		RootId:    rootId,
 	}
 
-	for _, filePath := range filePaths {
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("commands: reading file %s: %w", filePath, err)
-		}
-		response, _, err := apiClient.UploadFile(ctx, data, channelId, filePath)
-		if err != nil {
-			return fmt.Errorf("commands: uploading %s: %w", filePath, err)
-		}
-		post.FileIds = append(post.FileIds, response.FileInfos[0].Id)
+	post.FileIds, err = uploadFiles(ctx, apiClient, channelId, filePaths)
+	if err != nil {
+		return err
 	}
 
 	created, _, err := apiClient.CreatePost(ctx, post)
