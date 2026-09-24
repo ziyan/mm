@@ -4,6 +4,16 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.8.0] - 2026-09-24
+
+### Added
+
+- `mm dm send` and `mm dm group` accept `-f/--file` to attach files. (#29)
+
+### Fixed
+
+- `mm post create -f` names the attachment by its file name instead of the full local path, and no longer waits on stdin when only a file is given. (#29)
+
 ## [0.7.0] - 2026-09-24
 
 ### Changed
