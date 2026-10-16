@@ -63,16 +63,12 @@ func fileUploadRun(command *cobra.Command, arguments []string) error {
 
 	message, _ := command.Flags().GetString("message")
 
-	var rootId string
-	if rootReference, _ := command.Flags().GetString("root-id"); rootReference != "" {
-		rootPost, err := resolveThreadRoot(ctx, apiClient, rootReference)
+	rootId, _ := command.Flags().GetString("root-id")
+	if rootId != "" {
+		rootId, err = resolveThreadInChannel(ctx, apiClient, rootId, channelId, arguments[0])
 		if err != nil {
 			return err
 		}
-		if rootPost.ChannelId != channelId {
-			return fmt.Errorf("commands: thread %s is not in channel %s", rootPost.Id, arguments[0])
-		}
-		rootId = rootPost.Id
 	}
 
 	filePaths := arguments[1:]

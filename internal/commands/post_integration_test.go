@@ -240,3 +240,29 @@ func TestIntegrationFileUploadIntoThread(t *testing.T) {
 		t.Error("expected an error for a thread in another channel")
 	}
 }
+
+func TestIntegrationPostCreateRootIdAcceptsAReply(t *testing.T) {
+	skipIntegration(t)
+	result, output, err := runCommandJSON("post", "create", "town-square", "thread root for post create")
+	if err != nil {
+		t.Fatalf("post create failed: %v\n%s", err, output)
+	}
+	rootId, _ := result.(map[string]interface{})["id"].(string)
+	result, output, err = runCommandJSON("post", "reply", rootId, "first reply")
+	if err != nil {
+		t.Fatalf("post reply failed: %v\n%s", err, output)
+	}
+	replyId, _ := result.(map[string]interface{})["id"].(string)
+
+	result, output, err = runCommandJSON("post", "create", "town-square", "via a reply ID", "--root-id", replyId)
+	if err != nil {
+		t.Fatalf("post create --root-id <reply> failed: %v\n%s", err, output)
+	}
+	if created, _ := result.(map[string]interface{}); created["root_id"] != rootId {
+		t.Errorf("expected root_id %s, got %v", rootId, created["root_id"])
+	}
+
+	if _, err := runCommand("post", "create", "off-topic", "wrong channel", "--root-id", rootId); err == nil {
+		t.Error("expected an error for a thread in another channel")
+	}
+}
