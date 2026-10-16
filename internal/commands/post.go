@@ -55,11 +55,12 @@ func init() {
 	}
 
 	replyCommand := &cobra.Command{
-		Use:   "reply <post-id> <message>",
-		Short: "Reply to a thread",
-		Args:  cobra.MinimumNArgs(2),
+		Use:   "reply <post-id> [message]",
+		Short: "Reply to a thread, optionally with files",
+		Args:  cobra.MinimumNArgs(1),
 		RunE:  postReplyRun,
 	}
+	replyCommand.Flags().StringArrayP("file", "f", nil, "Attach file(s)")
 
 	editCommand := &cobra.Command{
 		Use:   "edit <post-id> <new-message>",
@@ -455,29 +456,33 @@ func postThreadRun(command *cobra.Command, arguments []string) error {
 }
 
 func postReplyRun(command *cobra.Command, arguments []string) error {
+	message := strings.Join(arguments[1:], " ")
+	filePaths, _ := command.Flags().GetStringArray("file")
+	if message == "" && len(filePaths) == 0 {
+		return fmt.Errorf("commands: no message or file provided")
+	}
+
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(arguments[0])
-
-	rootPost, _, err := apiClient.GetPost(ctx, postId, "")
+	rootPost, err := resolveThreadRoot(ctx, apiClient, arguments[0])
 	if err != nil {
-		return fmt.Errorf("commands: post not found: %w", err)
+		return err
 	}
 
-	rootId := rootPost.Id
-	if rootPost.RootId != "" {
-		rootId = rootPost.RootId
+	fileIds, err := uploadFiles(ctx, apiClient, rootPost.ChannelId, filePaths)
+	if err != nil {
+		return err
 	}
 
-	message := strings.Join(arguments[1:], " ")
 	created, _, err := apiClient.CreatePost(ctx, &model.Post{
 		ChannelId: rootPost.ChannelId,
 		Message:   message,
-		RootId:    rootId,
+		RootId:    rootPost.Id,
+		FileIds:   fileIds,
 	})
 	if err != nil {
 		return fmt.Errorf("commands: replying: %w", err)
@@ -488,8 +493,25 @@ func postReplyRun(command *cobra.Command, arguments []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Replied %s in thread %s", created.Id[:8], rootId[:8])
+	printer.PrintSuccess("Replied %s in thread %s", created.Id[:8], rootPost.Id[:8])
 	return nil
+}
+
+// resolveThreadRoot returns the root post of the thread that a post belongs
+// to. It accepts the ID of the root itself or of any reply.
+func resolveThreadRoot(ctx context.Context, apiClient *model.Client4, postReference string) (*model.Post, error) {
+	post, _, err := apiClient.GetPost(ctx, normalizePostId(postReference), "")
+	if err != nil {
+		return nil, fmt.Errorf("commands: post not found: %w", err)
+	}
+	if post.RootId == "" {
+		return post, nil
+	}
+	rootPost, _, err := apiClient.GetPost(ctx, post.RootId, "")
+	if err != nil {
+		return nil, fmt.Errorf("commands: thread root not found: %w", err)
+	}
+	return rootPost, nil
 }
 
 func postEditRun(command *cobra.Command, arguments []string) error {
