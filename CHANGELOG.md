@@ -4,6 +4,16 @@ All notable changes to mm will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.9.0] - 2026-10-16
+
+### Added
+
+- `mm post reply` accepts `-f/--file`, and `mm file upload` accepts `--root-id` to post files into a thread. (#33)
+
+### Fixed
+
+- `mm post create --root-id` accepts the ID of a reply, not only of the thread root. (#33)
+
 ## [0.8.0] - 2026-09-24
 
 ### Added
