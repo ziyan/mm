@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -168,5 +170,99 @@ func TestIntegrationSaveAndUnsavePost(t *testing.T) {
 	output, err = runCommand("saved", "remove", postId)
 	if err != nil {
 		t.Fatalf("saved remove failed: %v\n%s", err, output)
+	}
+}
+
+func TestIntegrationPostReplyWithFile(t *testing.T) {
+	skipIntegration(t)
+	result, output, err := runCommandJSON("post", "create", "town-square", "thread root for a file reply")
+	if err != nil {
+		t.Fatalf("post create failed: %v\n%s", err, output)
+	}
+	rootId, _ := result.(map[string]interface{})["id"].(string)
+
+	testFile := filepath.Join(t.TempDir(), "reply-attachment.txt")
+	if err := os.WriteFile(testFile, []byte("attached"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, output, err = runCommandJSON("post", "reply", rootId, "-f", testFile)
+	if err != nil {
+		t.Fatalf("post reply --file failed: %v\n%s", err, output)
+	}
+	reply, _ := result.(map[string]interface{})
+	if reply["root_id"] != rootId {
+		t.Errorf("expected root_id %s, got %v", rootId, reply["root_id"])
+	}
+	if fileIds, _ := reply["file_ids"].([]interface{}); len(fileIds) != 1 {
+		t.Errorf("expected one attached file, got %v", reply["file_ids"])
+	}
+
+	// Replying to a reply lands in the same thread.
+	replyId, _ := reply["id"].(string)
+	result, output, err = runCommandJSON("post", "reply", replyId, "second reply")
+	if err != nil {
+		t.Fatalf("reply to a reply failed: %v\n%s", err, output)
+	}
+	if second, _ := result.(map[string]interface{}); second["root_id"] != rootId {
+		t.Errorf("expected root_id %s, got %v", rootId, second["root_id"])
+	}
+
+	if _, err := runCommand("post", "reply", rootId); err == nil {
+		t.Error("expected an error with neither a message nor a file")
+	}
+}
+
+func TestIntegrationFileUploadIntoThread(t *testing.T) {
+	skipIntegration(t)
+	result, output, err := runCommandJSON("post", "create", "town-square", "thread root for an upload")
+	if err != nil {
+		t.Fatalf("post create failed: %v\n%s", err, output)
+	}
+	rootId, _ := result.(map[string]interface{})["id"].(string)
+
+	testFile := filepath.Join(t.TempDir(), "thread-upload.txt")
+	if err := os.WriteFile(testFile, []byte("attached"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := runCommand("file", "upload", "town-square", testFile, "--root-id", rootId, "-m", "into the thread"); err != nil {
+		t.Fatalf("file upload --root-id failed: %v\n%s", err, output)
+	}
+
+	_, output, err = runCommandJSON("post", "thread", rootId)
+	if err != nil {
+		t.Fatalf("post thread failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "into the thread") || !strings.Contains(output, "file_ids") {
+		t.Errorf("expected the upload as a reply in the thread, got: %s", output)
+	}
+
+	if _, err := runCommand("file", "upload", "off-topic", testFile, "--root-id", rootId); err == nil {
+		t.Error("expected an error for a thread in another channel")
+	}
+}
+
+func TestIntegrationPostCreateRootIdAcceptsAReply(t *testing.T) {
+	skipIntegration(t)
+	result, output, err := runCommandJSON("post", "create", "town-square", "thread root for post create")
+	if err != nil {
+		t.Fatalf("post create failed: %v\n%s", err, output)
+	}
+	rootId, _ := result.(map[string]interface{})["id"].(string)
+	result, output, err = runCommandJSON("post", "reply", rootId, "first reply")
+	if err != nil {
+		t.Fatalf("post reply failed: %v\n%s", err, output)
+	}
+	replyId, _ := result.(map[string]interface{})["id"].(string)
+
+	result, output, err = runCommandJSON("post", "create", "town-square", "via a reply ID", "--root-id", replyId)
+	if err != nil {
+		t.Fatalf("post create --root-id <reply> failed: %v\n%s", err, output)
+	}
+	if created, _ := result.(map[string]interface{}); created["root_id"] != rootId {
+		t.Errorf("expected root_id %s, got %v", rootId, created["root_id"])
+	}
+
+	if _, err := runCommand("post", "create", "off-topic", "wrong channel", "--root-id", rootId); err == nil {
+		t.Error("expected an error for a thread in another channel")
 	}
 }

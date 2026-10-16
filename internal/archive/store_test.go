@@ -10,10 +10,10 @@ import (
 
 func TestSafeName(t *testing.T) {
 	cases := map[string]string{
-		"town-square":      "town-square",
+		"town-square":       "town-square",
 		"example-team/team": "example-team_team",
-		"a b c":            "a_b_c",
-		"日本語":              "___",
+		"a b c":             "a_b_c",
+		"日本語":               "___",
 	}
 	for input, expected := range cases {
 		if actual := SafeName(input); actual != expected {

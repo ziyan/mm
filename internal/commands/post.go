@@ -28,7 +28,7 @@ func init() {
 		RunE:  postCreateRun,
 	}
 	createCommand.Flags().StringArrayP("file", "f", nil, "Attach file(s)")
-	createCommand.Flags().String("root-id", "", "Reply to a thread (post ID)")
+	createCommand.Flags().String("root-id", "", "Reply in this thread (any post in it)")
 
 	listCommand := &cobra.Command{
 		Use:   "list <channel>",
@@ -55,11 +55,12 @@ func init() {
 	}
 
 	replyCommand := &cobra.Command{
-		Use:   "reply <post-id> <message>",
-		Short: "Reply to a thread",
-		Args:  cobra.MinimumNArgs(2),
+		Use:   "reply <post-id> [message]",
+		Short: "Reply to a thread, optionally with files",
+		Args:  cobra.MinimumNArgs(1),
 		RunE:  postReplyRun,
 	}
+	replyCommand.Flags().StringArrayP("file", "f", nil, "Attach file(s)")
 
 	editCommand := &cobra.Command{
 		Use:   "edit <post-id> <new-message>",
@@ -219,6 +220,12 @@ func postCreateRun(command *cobra.Command, arguments []string) error {
 	}
 
 	rootId, _ := command.Flags().GetString("root-id")
+	if rootId != "" {
+		rootId, err = resolveThreadInChannel(ctx, apiClient, rootId, channelId, arguments[0])
+		if err != nil {
+			return err
+		}
+	}
 
 	post := &model.Post{
 		ChannelId: channelId,
@@ -455,29 +462,33 @@ func postThreadRun(command *cobra.Command, arguments []string) error {
 }
 
 func postReplyRun(command *cobra.Command, arguments []string) error {
+	message := strings.Join(arguments[1:], " ")
+	filePaths, _ := command.Flags().GetStringArray("file")
+	if message == "" && len(filePaths) == 0 {
+		return fmt.Errorf("commands: no message or file provided")
+	}
+
 	apiClient, _, err := client.New()
 	if err != nil {
 		return err
 	}
 	ctx := context.Background()
 
-	postId := normalizePostId(arguments[0])
-
-	rootPost, _, err := apiClient.GetPost(ctx, postId, "")
+	thread, err := resolveThread(ctx, apiClient, arguments[0])
 	if err != nil {
-		return fmt.Errorf("commands: post not found: %w", err)
+		return err
 	}
 
-	rootId := rootPost.Id
-	if rootPost.RootId != "" {
-		rootId = rootPost.RootId
+	fileIds, err := uploadFiles(ctx, apiClient, thread.ChannelID, filePaths)
+	if err != nil {
+		return err
 	}
 
-	message := strings.Join(arguments[1:], " ")
 	created, _, err := apiClient.CreatePost(ctx, &model.Post{
-		ChannelId: rootPost.ChannelId,
+		ChannelId: thread.ChannelID,
 		Message:   message,
-		RootId:    rootId,
+		RootId:    thread.RootID,
+		FileIds:   fileIds,
 	})
 	if err != nil {
 		return fmt.Errorf("commands: replying: %w", err)
@@ -488,8 +499,41 @@ func postReplyRun(command *cobra.Command, arguments []string) error {
 		return nil
 	}
 
-	printer.PrintSuccess("Replied %s in thread %s", created.Id[:8], rootId[:8])
+	printer.PrintSuccess("Replied %s in thread %s", created.Id[:8], thread.RootID[:8])
 	return nil
+}
+
+// threadReference names the thread that a post belongs to.
+type threadReference struct {
+	RootID    string
+	ChannelID string
+}
+
+// resolveThread finds the thread a post belongs to. It accepts the ID of the
+// root itself or of any reply, which carries its root's ID and channel.
+func resolveThread(ctx context.Context, apiClient *model.Client4, postId string) (*threadReference, error) {
+	post, _, err := apiClient.GetPost(ctx, normalizePostId(postId), "")
+	if err != nil {
+		return nil, fmt.Errorf("commands: post not found: %w", err)
+	}
+	rootId := post.Id
+	if post.RootId != "" {
+		rootId = post.RootId
+	}
+	return &threadReference{RootID: rootId, ChannelID: post.ChannelId}, nil
+}
+
+// resolveThreadInChannel resolves a thread for a post that is about to go to
+// the given channel, and refuses a thread that lives in another one.
+func resolveThreadInChannel(ctx context.Context, apiClient *model.Client4, postId, channelId, channelName string) (string, error) {
+	thread, err := resolveThread(ctx, apiClient, postId)
+	if err != nil {
+		return "", err
+	}
+	if thread.ChannelID != channelId {
+		return "", fmt.Errorf("commands: thread %s is not in channel %s", thread.RootID, channelName)
+	}
+	return thread.RootID, nil
 }
 
 func postEditRun(command *cobra.Command, arguments []string) error {

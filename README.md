@@ -166,6 +166,7 @@ mm post list <channel> --full-id               # show full 26-char post IDs
 # --threads is not supported with --json; use --collapse-threads instead.
 mm post thread <post-id>                       # view a thread
 mm post reply <post-id> <message>              # reply to a thread
+mm post reply <post-id> [message] -f log.txt   # reply with attachment(s)
 mm post edit <post-id> <new-message>           # edit a post
 mm post delete <post-id>                       # delete a post
 mm post pin <post-id>                          # pin a post
@@ -228,6 +229,7 @@ mm scheduled delete <id>                                # delete scheduled post
 ```bash
 mm file upload <channel> file1.png file2.pdf   # upload files
 mm file upload <channel> doc.pdf -m "check this out"
+mm file upload <channel> doc.pdf --root-id <post-id>  # upload into a thread
 mm file download <file-id>                     # download to current dir
 mm file download <file-id> output.pdf          # download to specific path
 mm file download <file-id> -                   # download to stdout

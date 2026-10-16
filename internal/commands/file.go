@@ -25,6 +25,7 @@ func init() {
 		RunE:  fileUploadRun,
 	}
 	uploadCommand.Flags().StringP("message", "m", "", "Message to accompany the file")
+	uploadCommand.Flags().String("root-id", "", "Post the files as a reply in this thread (any post in it)")
 
 	downloadCommand := &cobra.Command{
 		Use:   "download <file-id> [output-path]",
@@ -62,23 +63,27 @@ func fileUploadRun(command *cobra.Command, arguments []string) error {
 
 	message, _ := command.Flags().GetString("message")
 
-	var fileIds []string
-	for _, filePath := range arguments[1:] {
-		data, err := os.ReadFile(filePath)
+	rootId, _ := command.Flags().GetString("root-id")
+	if rootId != "" {
+		rootId, err = resolveThreadInChannel(ctx, apiClient, rootId, channelId, arguments[0])
 		if err != nil {
-			return fmt.Errorf("commands: reading %s: %w", filePath, err)
+			return err
 		}
-		response, _, err := apiClient.UploadFile(ctx, data, channelId, filepath.Base(filePath))
-		if err != nil {
-			return fmt.Errorf("commands: uploading %s: %w", filePath, err)
-		}
-		fileIds = append(fileIds, response.FileInfos[0].Id)
-		printer.PrintInfo("Uploaded %s (%s)", filepath.Base(filePath), response.FileInfos[0].Id)
+	}
+
+	filePaths := arguments[1:]
+	fileIds, err := uploadFiles(ctx, apiClient, channelId, filePaths)
+	if err != nil {
+		return err
+	}
+	for index, fileId := range fileIds {
+		printer.PrintInfo("Uploaded %s (%s)", filepath.Base(filePaths[index]), fileId)
 	}
 
 	post := &model.Post{
 		ChannelId: channelId,
 		Message:   message,
+		RootId:    rootId,
 		FileIds:   fileIds,
 	}
 	_, _, err = apiClient.CreatePost(ctx, post)
