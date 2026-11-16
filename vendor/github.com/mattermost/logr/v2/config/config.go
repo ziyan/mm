@@ -1,3 +1,4 @@
+// Package config provides utilities for configuring logr from JSON configuration files.
 package config
 
 import (
@@ -14,6 +15,8 @@ import (
 	"github.com/mattermost/logr/v2/targets"
 )
 
+// TargetCfg defines the configuration for a single log target, including
+// its type, format, and output levels.
 type TargetCfg struct {
 	Type          string          `json:"type"` // one of "console", "file", "tcp", "syslog", "none".
 	Options       json.RawMessage `json:"options,omitempty"`
@@ -23,13 +26,19 @@ type TargetCfg struct {
 	MaxQueueSize  int             `json:"maxqueuesize,omitempty"`
 }
 
+// ConsoleOptions specifies options for console-based log targets.
 type ConsoleOptions struct {
 	Out string `json:"out"` // one of "stdout", "stderr"
 }
 
+// TargetFactory creates a log target from a type string and options.
 type TargetFactory func(targetType string, options json.RawMessage) (logr.Target, error)
+
+// FormatterFactory creates a log formatter from a format string and options.
 type FormatterFactory func(format string, options json.RawMessage) (logr.Formatter, error)
 
+// Factories provides custom factories for creating targets and formatters
+// that are not built-in to logr.
 type Factories struct {
 	TargetFactory    TargetFactory    // can be nil
 	FormatterFactory FormatterFactory // can be nil
@@ -70,7 +79,11 @@ func ConfigureTargets(lgr *logr.Logr, config map[string]TargetCfg, factories *Fa
 			return fmt.Errorf("error creating formatter for log target %s: %w", name, err)
 		}
 
-		filter := newFilter(tcfg.Levels)
+		filter, err := newFilter(tcfg.Levels)
+		if err != nil {
+			return fmt.Errorf("error creating filter for log target %s: %w", name, err)
+		}
+
 		qSize := tcfg.MaxQueueSize
 		if qSize == 0 {
 			qSize = logr.DefaultMaxQueueSize
@@ -83,12 +96,16 @@ func ConfigureTargets(lgr *logr.Logr, config map[string]TargetCfg, factories *Fa
 	return nil
 }
 
-func newFilter(levels []logr.Level) logr.Filter {
+func newFilter(levels []logr.Level) (logr.Filter, error) {
 	filter := &logr.CustomFilter{}
 	for _, lvl := range levels {
+		if err := logr.CheckOptionText("level name", lvl.Name); err != nil {
+			return nil, err
+		}
+		logr.TruncateOptionText("level name", &lvl.Name, logr.MaxLevelNameLen)
 		filter.Add(lvl)
 	}
-	return filter
+	return filter, nil
 }
 
 func newTarget(targetType string, options json.RawMessage, factory TargetFactory) (logr.Target, error) {

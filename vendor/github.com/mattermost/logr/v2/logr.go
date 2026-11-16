@@ -22,7 +22,7 @@ type Logr struct {
 	in         chan *LogRec
 	quit       chan struct{} // closed by Shutdown to exit read loop
 	done       chan struct{} // closed when read loop exited
-	lvlCache   levelCache
+	lvlCache   *atomicLevelCache
 	bufferPool sync.Pool
 	options    *options
 
@@ -63,12 +63,7 @@ func New(opts ...Option) (*Logr, error) {
 	lgr.quit = make(chan struct{})
 	lgr.done = make(chan struct{})
 
-	if lgr.options.useSyncMapLevelCache {
-		lgr.lvlCache = &syncMapLevelCache{}
-	} else {
-		lgr.lvlCache = &arrayLevelCache{}
-	}
-	lgr.lvlCache.setup()
+	lgr.lvlCache = &atomicLevelCache{}
 
 	lgr.bufferPool = sync.Pool{
 		New: func() interface{} {
@@ -112,7 +107,7 @@ func (lgr *Logr) AddTarget(target Target, name string, filter Filter, formatter 
 
 	lgr.targetHosts = append(lgr.targetHosts, host)
 
-	lgr.ResetLevelCache()
+	lgr.resetLevelCacheLocked()
 
 	return nil
 }
@@ -223,7 +218,7 @@ func (lgr *Logr) RemoveTargets(cxt context.Context, f func(ti TargetInfo) bool) 
 	}
 
 	lgr.targetHosts = hosts
-	lgr.ResetLevelCache()
+	lgr.resetLevelCacheLocked()
 
 	return errs.ErrorOrNil()
 }
@@ -231,7 +226,20 @@ func (lgr *Logr) RemoveTargets(cxt context.Context, f func(ti TargetInfo) bool) 
 // ResetLevelCache resets the cached results of `IsLevelEnabled`. This is
 // called any time a Target is added or a target's level is changed.
 func (lgr *Logr) ResetLevelCache() {
+	// Exclusive so a concurrent cache miss cannot store a filter result read before the reset.
+	lgr.tmux.Lock()
+	defer lgr.tmux.Unlock()
+	lgr.resetLevelCacheLocked()
+}
+
+// resetLevelCacheLocked is the internal version that assumes tmux is already write locked.
+func (lgr *Logr) resetLevelCacheLocked() {
 	lgr.lvlCache.clear()
+
+	// Also clear per-target level caches
+	for _, host := range lgr.targetHosts {
+		host.resetLevelCache()
+	}
 }
 
 // SetMetricsCollector sets (or resets) the metrics collector to be used for gathering
