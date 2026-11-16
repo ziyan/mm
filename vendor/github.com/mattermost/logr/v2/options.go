@@ -17,7 +17,6 @@ type options struct {
 	enqueueTimeout          time.Duration
 	shutdownTimeout         time.Duration
 	flushTimeout            time.Duration
-	useSyncMapLevelCache    bool
 	maxPooledBuffer         int
 	disableBufferPool       bool
 	metricsCollector        MetricsCollector
@@ -126,12 +125,20 @@ func FlushTimeout(dur time.Duration) Option {
 	}
 }
 
-// UseSyncMapLevelCache can be set to true when high concurrency (e.g. >32 cores)
-// is expected. This may improve performance with large numbers of cores - benchmark
-// for your use case.
-func UseSyncMapLevelCache(use bool) Option {
-	return func(l *Logr) error {
-		l.options.useSyncMapLevelCache = use
+// UseArrayLevelCache does nothing. A lock-free atomic level cache is always used.
+//
+// Deprecated: This option is retained for backward compatibility and has no effect.
+func UseArrayLevelCache(_ bool) Option {
+	return func(_ *Logr) error {
+		return nil
+	}
+}
+
+// UseSyncMapLevelCache does nothing. A lock-free atomic level cache is always used.
+//
+// Deprecated: This option is retained for backward compatibility and has no effect.
+func UseSyncMapLevelCache(_ bool) Option {
+	return func(_ *Logr) error {
 		return nil
 	}
 }
